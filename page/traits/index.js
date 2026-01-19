@@ -9,8 +9,7 @@ import {
   getTraitById,
   getTraitRarity,
   getUnlockRequirementText,
-  toggleTrait,
-  isTraitActive
+  toggleTrait
 } from '../../lib/traits'
 
 let W = 480
@@ -28,15 +27,17 @@ function px(val) {
 }
 
 const COLORS = {
-  bgDark: 0x000000,
-  bgLight: 0x2a2a3e,
-  bgMedium: 0x1a1a2e,
-  bgActive: 0x2d4a3e,
+  bgDark: 0x0a0a0f,
+  bgCard: 0x1a1a2e,
+  bgCardActive: 0x1a3a2a,
+  bgCardLocked: 0x0f0f18,
   textPrimary: 0xFFFFFF,
   textSecondary: 0xBBBBBB,
-  textMuted: 0x888888,
-  textDark: 0x555555,
-  success: 0x4CAF50
+  textMuted: 0x666666,
+  textLocked: 0x444444,
+  success: 0x4CAF50,
+  successDark: 0x2E7D32,
+  border: 0x333344
 }
 
 let widgets = []
@@ -79,171 +80,186 @@ Page({
   },
 
   buildUI() {
+    const allTraits = getAllTraits()
+    const activeTraits = creature?.activeTraits || []
+    const unlockedSet = new Set(creature?.unlockedTraits || [])
+    const unlockedCount = unlockedSet.size
+    const totalCount = allTraits.length
+
+    // Build ordered trait list
+    const traitList = []
+
+    // Active first
+    activeTraits.forEach(id => {
+      const trait = getTraitById(id)
+      if (trait) traitList.push({ ...trait, isActive: true, isUnlocked: true })
+    })
+
+    // Unlocked but not active
+    allTraits.forEach(trait => {
+      if (unlockedSet.has(trait.id) && !activeTraits.includes(trait.id)) {
+        traitList.push({ ...trait, isActive: false, isUnlocked: true })
+      }
+    })
+
+    // Locked
+    allTraits.forEach(trait => {
+      if (!unlockedSet.has(trait.id)) {
+        traitList.push({ ...trait, isActive: false, isUnlocked: false })
+      }
+    })
+
+    // Calculate content height for scrolling
+    const headerH = px(110)
+    const itemH = px(72)
+    const itemGap = px(10)
+    const bottomPadding = px(80)
+    const contentH = headerH + (traitList.length * (itemH + itemGap)) + bottomPadding
+
+    // Background (full content height)
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: 0, y: 0, w: W, h: H,
+      x: 0, y: 0, w: W, h: Math.max(H, contentH),
       color: COLORS.bgDark
     }))
 
+    // Header section
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(50), w: W - px(120), h: px(32),
+      x: 0, y: px(40), w: W, h: px(34),
       text: 'Traits',
-      text_size: px(26),
+      text_size: px(28),
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H
     }))
 
-    if (!creature) {
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(200), w: W - px(120), h: px(30),
-        text: 'No creature data',
-        text_size: px(16),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
-      return
-    }
-
-    const allTraits = getAllTraits()
-    const unlockedCount = creature.unlockedTraits?.length || 0
-    const totalCount = allTraits.length
-
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(85), w: W - px(120), h: px(24),
-      text: `${unlockedCount}/${totalCount} unlocked`,
-      text_size: px(17),
+      x: 0, y: px(78), w: W, h: px(22),
+      text: `${unlockedCount} of ${totalCount} unlocked`,
+      text_size: px(16),
       color: COLORS.textSecondary,
       align_h: hmUI.align.CENTER_H
     }))
 
-    let currentY = px(120)
+    // Trait items
+    let currentY = headerH
+    const itemW = W - px(40)
+    const itemX = px(20)
 
-    if (unlockedCount === 0) {
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(180), w: W - px(120), h: px(28),
-        text: 'No traits yet',
-        text_size: px(18),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(215), w: W - px(120), h: px(50),
-        text: 'Feed your blob to unlock traits!',
-        text_size: px(15),
-        color: COLORS.textDark,
-        align_h: hmUI.align.CENTER_H
-      }))
-
-      this.createLockedSection(px(280))
-    } else {
-      // Active traits section
-      const activeTraits = creature.activeTraits || []
-      if (activeTraits.length > 0) {
-        widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-          x: px(70), y: currentY, w: W - px(140), h: px(24),
-          text: 'Active',
-          text_size: px(16),
-          color: COLORS.success,
-          align_h: hmUI.align.LEFT
-        }))
-        currentY += px(25)
-
-        activeTraits.slice(0, 2).forEach(traitId => {
-          const trait = getTraitById(traitId)
-          if (trait) {
-            currentY = this.createTraitItem(trait, currentY, true)
-          }
-        })
-      }
-
-      // Available (unlocked but not active) section
-      const availableTraits = (creature.unlockedTraits || []).filter(
-        t => !activeTraits.includes(t)
-      )
-      if (availableTraits.length > 0 && currentY < px(300)) {
-        currentY += px(10)
-        widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-          x: px(70), y: currentY, w: W - px(140), h: px(24),
-          text: 'Available',
-          text_size: px(16),
-          color: COLORS.textSecondary,
-          align_h: hmUI.align.LEFT
-        }))
-        currentY += px(25)
-
-        availableTraits.slice(0, 3).forEach(traitId => {
-          const trait = getTraitById(traitId)
-          if (trait && currentY < px(360)) {
-            currentY = this.createTraitItem(trait, currentY, false)
-          }
-        })
-      }
-    }
-
-    this.createPageDots(px(435))
+    traitList.forEach((trait, index) => {
+      this.createTraitCard(trait, itemX, currentY, itemW, itemH)
+      currentY += itemH + itemGap
+    })
   },
 
-  createTraitItem(trait, y, isActive) {
-    const itemH = px(40)
-    const itemW = px(280)
-    const itemX = CX - itemW / 2
+  createTraitCard(trait, x, y, w, h) {
     const rarity = getTraitRarity(trait.id)
+    const rarityColor = RARITY_COLORS[rarity]
+    const isActive = trait.isActive
+    const isUnlocked = trait.isUnlocked
 
-    // Background (tappable button)
-    widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: itemX, y: y,
-      w: itemW, h: itemH,
-      radius: px(8),
-      normal_color: isActive ? COLORS.bgActive : COLORS.bgLight,
-      press_color: COLORS.bgMedium,
-      click_func: () => this.onTraitTap(trait.id)
-    }))
+    // Card background color
+    let bgColor = COLORS.bgCard
+    if (isActive) bgColor = COLORS.bgCardActive
+    else if (!isUnlocked) bgColor = COLORS.bgCardLocked
 
-    // Rarity indicator bar
+    // Card background (button for tap)
+    if (isUnlocked) {
+      widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: x, y: y, w: w, h: h,
+        radius: px(14),
+        normal_color: bgColor,
+        press_color: isActive ? COLORS.successDark : COLORS.border,
+        click_func: () => this.onTraitTap(trait.id)
+      }))
+    } else {
+      // Non-clickable for locked
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: x, y: y, w: w, h: h,
+        radius: px(14),
+        color: bgColor
+      }))
+    }
+
+    // Rarity color bar (left edge)
+    const barW = px(5)
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: itemX, y: y,
-      w: px(4), h: itemH,
+      x: x, y: y + px(8),
+      w: barW, h: h - px(16),
       radius: px(2),
-      color: RARITY_COLORS[rarity]
+      color: isUnlocked ? rarityColor : COLORS.textLocked
     }))
 
     // Trait name
+    const textX = x + px(18)
+    const nameColor = isUnlocked ? COLORS.textPrimary : COLORS.textLocked
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: itemX + px(15), y: y + px(4),
-      w: itemW - px(60), h: px(22),
+      x: textX, y: y + px(14),
+      w: w - px(70), h: px(24),
       text: trait.name,
-      text_size: px(16),
-      color: COLORS.textPrimary,
+      text_size: px(18),
+      color: nameColor,
       align_h: hmUI.align.LEFT
     }))
 
-    // Rarity label
+    // Description or unlock requirement
+    let subText = trait.description
+    let subColor = COLORS.textSecondary
+    if (!isUnlocked) {
+      subText = `Unlock: ${getUnlockRequirementText(trait)}`
+      subColor = COLORS.textMuted
+    } else if (isActive) {
+      subColor = COLORS.success
+    }
+
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: itemX + px(15), y: y + px(22),
-      w: itemW - px(60), h: px(16),
-      text: rarity.charAt(0).toUpperCase() + rarity.slice(1),
+      x: textX, y: y + px(40),
+      w: w - px(70), h: px(20),
+      text: subText,
       text_size: px(13),
-      color: RARITY_COLORS[rarity],
+      color: subColor,
       align_h: hmUI.align.LEFT
     }))
 
-    // Status indicator (checkmark for active)
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: itemX + itemW - px(30), y: y + (itemH - px(18)) / 2,
-      w: px(18), h: px(18),
-      radius: px(9),
-      color: isActive ? COLORS.success : COLORS.textDark
-    }))
+    // Status indicator (right side)
+    const indicatorSize = px(24)
+    const indicatorX = x + w - px(40)
+    const indicatorY = y + (h - indicatorSize) / 2
 
-    return y + itemH + px(8)
+    if (isActive) {
+      // Green filled circle with checkmark
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: indicatorX, y: indicatorY,
+        w: indicatorSize, h: indicatorSize,
+        radius: indicatorSize / 2,
+        color: COLORS.success
+      }))
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: indicatorX, y: indicatorY + px(2),
+        w: indicatorSize, h: indicatorSize,
+        text: '✓',
+        text_size: px(14),
+        color: COLORS.textPrimary,
+        align_h: hmUI.align.CENTER_H
+      }))
+    } else if (isUnlocked) {
+      // Empty circle (can be activated)
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: indicatorX, y: indicatorY,
+        w: indicatorSize, h: indicatorSize,
+        radius: indicatorSize / 2,
+        color: COLORS.border
+      }))
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: indicatorX + px(3), y: indicatorY + px(3),
+        w: indicatorSize - px(6), h: indicatorSize - px(6),
+        radius: (indicatorSize - px(6)) / 2,
+        color: COLORS.bgCard
+      }))
+    }
+    // Locked traits: no indicator
   },
 
   onTraitTap(traitId) {
     if (!creature) return
-
-    // Check if trait is unlocked
-    if (!creature.unlockedTraits?.includes(traitId)) {
-      return // Can't toggle locked traits
-    }
 
     // Toggle the trait
     creature.activeTraits = toggleTrait(traitId, creature, 2)
@@ -255,75 +271,9 @@ Page({
       if (app.setCreature) app.setCreature(creature)
     } catch (e) {}
 
-    // Rebuild UI to reflect changes
+    // Rebuild UI
     this.cleanup()
     this.buildUI()
-  },
-
-  createLockedSection(startY) {
-    const unlockedSet = new Set(creature.unlockedTraits || [])
-    const lockedRare = ALL_TRAITS.rare.filter(t => !unlockedSet.has(t.id))
-
-    if (lockedRare.length === 0) return
-
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(70), y: startY, w: W - px(140), h: px(24),
-      text: 'Rare (Locked)',
-      text_size: px(16),
-      color: COLORS.textDark,
-      align_h: hmUI.align.LEFT
-    }))
-
-    let y = startY + px(25)
-    const itemW = px(280)
-    const itemX = CX - itemW / 2
-
-    lockedRare.slice(0, 2).forEach(trait => {
-      if (y > px(390)) return
-
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: itemX, y: y,
-        w: itemW, h: px(36),
-        radius: px(6),
-        color: COLORS.bgMedium
-      }))
-
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: itemX + px(12), y: y + px(3),
-        w: itemW - px(24), h: px(18),
-        text: trait.name,
-        text_size: px(15),
-        color: COLORS.textDark,
-        align_h: hmUI.align.LEFT
-      }))
-
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: itemX + px(12), y: y + px(19),
-        w: itemW - px(24), h: px(16),
-        text: getUnlockRequirementText(trait),
-        text_size: px(12),
-        color: COLORS.textDark,
-        align_h: hmUI.align.LEFT
-      }))
-
-      y += px(42)
-    })
-  },
-
-  createPageDots(y) {
-    const dotSize = px(6)
-    const dotSpacing = px(14)
-    const totalW = 5 * dotSize + 4 * (dotSpacing - dotSize)
-    const startX = CX - totalW / 2
-
-    for (let i = 0; i < 5; i++) {
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: startX + i * dotSpacing, y: y,
-        w: dotSize, h: dotSize,
-        radius: dotSize / 2,
-        color: i === 3 ? COLORS.textPrimary : COLORS.textDark
-      }))
-    }
   },
 
   cleanup() {
