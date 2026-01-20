@@ -7,20 +7,40 @@ App({
 
   onCreate() {
     // Initialize creature with safe defaults
-    try {
-      const { LocalStorage } = require('@zos/storage')
-      const storage = new LocalStorage()
-      const saved = storage.getItem('creature')
+    const { LocalStorage } = require('@zos/storage')
+    const storage = new LocalStorage()
 
+    let loaded = null
+
+    // Try to load saved creature
+    try {
+      const saved = storage.getItem('creature')
       if (saved) {
-        // Ensure all fields exist (handles upgrades)
-        this.globalData.creature = ensureCreatureFields(JSON.parse(saved))
-      } else {
-        this.globalData.creature = createDefaultCreature()
+        loaded = JSON.parse(saved)
       }
     } catch (e) {
-      // Fallback to default creature if storage fails
+      // Parse error - try to recover from backup
+      try {
+        const backup = storage.getItem('creature_backup')
+        if (backup) {
+          loaded = JSON.parse(backup)
+        }
+      } catch (e2) {}
+    }
+
+    if (loaded && loaded.totalXP !== undefined) {
+      // Valid creature found - ensure all fields exist
+      this.globalData.creature = ensureCreatureFields(loaded)
+    } else {
+      // No valid creature - create new
       this.globalData.creature = createDefaultCreature()
+    }
+
+    // Create backup of valid creature data
+    if (this.globalData.creature && this.globalData.creature.totalXP > 0) {
+      try {
+        storage.setItem('creature_backup', JSON.stringify(this.globalData.creature))
+      } catch (e) {}
     }
   },
 
@@ -46,7 +66,12 @@ App({
     try {
       const { LocalStorage } = require('@zos/storage')
       const storage = new LocalStorage()
-      storage.setItem('creature', JSON.stringify(creature))
+      const data = JSON.stringify(creature)
+      storage.setItem('creature', data)
+      // Also save backup if creature has XP
+      if (creature && creature.totalXP > 0) {
+        storage.setItem('creature_backup', data)
+      }
     } catch (e) {
       // Ignore
     }
