@@ -25,24 +25,52 @@ function px(val) {
   return Math.round(val * W / 480)
 }
 
-// Colors
+// RPG Color Palette
 const COLORS = {
-  bgDark: 0x000000,
-  bgLight: 0x2a2a3e,
+  // Backgrounds
+  bgDark: 0x08080c,
+  bgCard: 0x12121a,
+  bgCardLight: 0x1a1a24,
+  bgBar: 0x252530,
+
+  // Text
   textPrimary: 0xFFFFFF,
-  textSecondary: 0xBBBBBB,
-  textMuted: 0x888888,
-  textDark: 0x555555,
+  textSecondary: 0xB0B0C0,
+  textMuted: 0x606070,
+  textDark: 0x404050,
+
+  // Affinity Colors
   speed: 0x00BFFF,
+  speedDark: 0x005580,
+  speedGlow: 0x002840,
+
   power: 0xFF6B35,
+  powerDark: 0x993F1F,
+  powerGlow: 0x4d1f0f,
+
   endurance: 0x9B59B6,
+  enduranceDark: 0x5D356D,
+  enduranceGlow: 0x2e1a36,
+
+  // Status Colors
   success: 0x4CAF50,
   successDark: 0x2E7D32,
+  successGlow: 0x1a3d1a,
   warning: 0xFF9800,
+
+  // Accents
   streak: 0xFF6B35,
-  barBg: 0x2a2a3e,
+  gold: 0xFFD700,
+  barBg: 0x252530,
   xpParticle: 0x4CAF50,
   celebration: 0xFFD700
+}
+
+// Affinity icons
+const AFFINITY_ICONS = {
+  speed: '⚡',
+  power: '💪',
+  endurance: '🛡'
 }
 
 const BASE_BLOB_SIZE = 100
@@ -144,7 +172,17 @@ Page({
 
   // ==================== UI BUILDING ====================
 
+  getDominantAffinity() {
+    if (!creature) return 'endurance'
+    const { speed, power, endurance } = creature.affinities || { speed: 0, power: 0, endurance: 0 }
+    if (speed >= power && speed >= endurance) return 'speed'
+    if (power >= speed && power >= endurance) return 'power'
+    return 'endurance'
+  },
+
   buildStaticUI() {
+    const dominant = this.getDominantAffinity()
+
     // Background
     staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: W, h: H,
@@ -162,74 +200,385 @@ Page({
       return
     }
 
-    // Name
+    // ===== TOP SECTION =====
+    this.drawNameBanner()
+    this.drawStageBadge(dominant)
+
+    // ===== MIDDLE SECTION - Pedestal (drawn before blob) =====
+    this.drawPedestal(dominant)
+
+    // ===== BOTTOM SECTION =====
+    this.drawMoodDisplay()
+    this.drawProgressBar(dominant)
+    this.drawFeedSection(dominant)
+    this.drawPageDots()
+  },
+
+  drawNameBanner() {
+    const bannerY = px(50)
+    const bannerW = px(200)
+    const bannerH = px(38)
+
+    // Banner background
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - bannerW / 2,
+      y: bannerY,
+      w: bannerW,
+      h: bannerH,
+      radius: bannerH / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Left accent line
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - bannerW / 2 - px(30),
+      y: bannerY + bannerH / 2 - px(1),
+      w: px(25),
+      h: px(2),
+      color: COLORS.bgCardLight
+    }))
+
+    // Right accent line
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX + bannerW / 2 + px(5),
+      y: bannerY + bannerH / 2 - px(1),
+      w: px(25),
+      h: px(2),
+      color: COLORS.bgCardLight
+    }))
+
+    // Name text
     staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(55), w: W - px(120), h: px(36),
+      x: CX - bannerW / 2,
+      y: bannerY + px(7),
+      w: bannerW,
+      h: px(26),
       text: creature.name,
-      text_size: px(28),
+      text_size: px(22),
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H
     }))
+  },
 
-    // Stage + Streak
+  drawStageBadge(dominant) {
+    const badgeY = px(95)
     const stageName = STAGE_NAMES[creature.stage] || 'Unknown'
-    const streakText = creature.currentStreak > 0 ? ` | ${creature.currentStreak}d` : ''
-    staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(90), w: W - px(120), h: px(26),
-      text: stageName + streakText,
-      text_size: px(18),
-      color: creature.currentStreak > 0 ? COLORS.streak : COLORS.textMuted,
-      align_h: hmUI.align.CENTER_H
+    const icon = AFFINITY_ICONS[dominant]
+    const color = COLORS[dominant]
+    const darkColor = COLORS[`${dominant}Dark`]
+    const glowColor = COLORS[`${dominant}Glow`]
+
+    // Calculate badge width based on content
+    const hasStreak = creature.currentStreak > 0
+    const badgeW = hasStreak ? px(160) : px(130)
+    const badgeH = px(28)
+
+    // Outer glow
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2 - px(4),
+      y: badgeY - px(4),
+      w: badgeW + px(8),
+      h: badgeH + px(8),
+      radius: (badgeH + px(8)) / 2,
+      color: glowColor
     }))
 
-    // Mood text
+    // Badge border
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2 - px(2),
+      y: badgeY - px(2),
+      w: badgeW + px(4),
+      h: badgeH + px(4),
+      radius: (badgeH + px(4)) / 2,
+      color: darkColor
+    }))
+
+    // Badge background
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2,
+      y: badgeY,
+      w: badgeW,
+      h: badgeH,
+      radius: badgeH / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Badge text
+    const badgeText = hasStreak ? `${icon} ${stageName} | 🔥${creature.currentStreak}` : `${icon} ${stageName}`
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: CX - badgeW / 2,
+      y: badgeY + px(5),
+      w: badgeW,
+      h: px(20),
+      text: badgeText,
+      text_size: px(13),
+      color: color,
+      align_h: hmUI.align.CENTER_H
+    }))
+  },
+
+  drawPedestal(dominant) {
+    const pedestalY = BLOB_Y + px(45)
+    const blobSize = px(BASE_BLOB_SIZE) * (STAGE_SIZES[creature.stage] || 1.0)
+    const pedestalW = blobSize * 0.8
+    const pedestalH = px(20)
+
+    const color = COLORS[dominant]
+    const darkColor = COLORS[`${dominant}Dark`]
+    const glowColor = COLORS[`${dominant}Glow`]
+
+    // Outer glow ellipse (largest)
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - pedestalW / 2 - px(15),
+      y: pedestalY - px(5),
+      w: pedestalW + px(30),
+      h: pedestalH + px(10),
+      radius: (pedestalH + px(10)) / 2,
+      color: glowColor
+    }))
+
+    // Middle ring
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - pedestalW / 2 - px(8),
+      y: pedestalY,
+      w: pedestalW + px(16),
+      h: pedestalH,
+      radius: pedestalH / 2,
+      color: darkColor
+    }))
+
+    // Inner platform
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - pedestalW / 2,
+      y: pedestalY + px(3),
+      w: pedestalW,
+      h: pedestalH - px(6),
+      radius: (pedestalH - px(6)) / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Highlight line on top of pedestal
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - pedestalW / 4,
+      y: pedestalY + px(4),
+      w: pedestalW / 2,
+      h: px(2),
+      radius: px(1),
+      color: color
+    }))
+  },
+
+  drawMoodDisplay() {
+    const moodY = px(310)
+    const moodIcon = creature.mood >= 70 ? '😊' : creature.mood >= 40 ? '😐' : '💔'
     const moodText = creature.mood >= 70 ? 'Happy!' : creature.mood >= 40 ? 'Content' : 'Needs love'
     const moodColor = creature.mood >= 70 ? COLORS.success : creature.mood >= 40 ? COLORS.textSecondary : COLORS.warning
+
+    // Mood glow for happy mood
+    if (creature.mood >= 70) {
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: CX - px(60),
+        y: moodY - px(2),
+        w: px(120),
+        h: px(28),
+        radius: px(14),
+        color: COLORS.successGlow
+      }))
+    }
+
+    // Mood text with icon
     staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(305), w: W - px(120), h: px(28),
-      text: moodText,
-      text_size: px(20),
+      x: px(60), y: moodY, w: W - px(120), h: px(24),
+      text: `${moodIcon} ${moodText}`,
+      text_size: px(18),
       color: moodColor,
       align_h: hmUI.align.CENTER_H
     }))
+  },
 
-    // XP Progress bar
-    this.createProgressBar()
+  drawProgressBar(dominant) {
+    const evoProgress = this.getEvolutionProgress()
+    const barY = px(345)
+    const barW = px(260)
+    const barH = px(14)
+    const barX = CX - barW / 2
+    const color = COLORS[dominant]
+    const darkColor = COLORS[`${dominant}Dark`]
+
+    // Left end cap (diamond shape simulated with small rect)
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: barX - px(8),
+      y: barY + barH / 2 - px(4),
+      w: px(8),
+      h: px(8),
+      radius: px(2),
+      color: darkColor
+    }))
+
+    // Right end cap
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: barX + barW,
+      y: barY + barH / 2 - px(4),
+      w: px(8),
+      h: px(8),
+      radius: px(2),
+      color: darkColor
+    }))
+
+    // Bar background
+    progressWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: barX, y: barY, w: barW, h: barH,
+      radius: barH / 2,
+      color: COLORS.barBg
+    }))
+
+    // Bar fill
+    const fillWidth = Math.max(0, Math.round((barW - px(4)) * Math.min(100, evoProgress) / 100))
+    if (fillWidth > 0) {
+      progressWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: barX + px(2),
+        y: barY + px(2),
+        w: fillWidth,
+        h: barH - px(4),
+        radius: (barH - px(4)) / 2,
+        color: color
+      }))
+
+      // Shimmer highlight on fill
+      progressWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: barX + px(4),
+        y: barY + px(3),
+        w: Math.max(0, fillWidth - px(4)),
+        h: px(2),
+        radius: px(1),
+        color: COLORS.textPrimary
+      }))
+    }
 
     // XP text
     const threshold = EVOLUTION_THRESHOLDS[creature.stage]
-    const xpText = creature.stage >= 6 ? 'MAX' : `${creature.currentStageXP}/${threshold} XP`
+    const xpText = creature.stage >= 6 ? '✨ MAX LEVEL' : `${creature.currentStageXP}/${threshold} XP`
     staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(360), w: W - px(120), h: px(24),
+      x: px(60), y: barY + px(20), w: W - px(120), h: px(20),
       text: xpText,
-      text_size: px(16),
+      text_size: px(14),
       color: COLORS.textMuted,
       align_h: hmUI.align.CENTER_H
     }))
+  },
 
-    // Feed button or status
+  drawFeedSection(dominant) {
+    const feedY = px(395)
+
     if (hasBeenFedToday) {
+      // Fed today badge
+      const badgeW = px(130)
+      const badgeH = px(32)
+
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: CX - badgeW / 2,
+        y: feedY,
+        w: badgeW,
+        h: badgeH,
+        radius: badgeH / 2,
+        color: COLORS.bgCard
+      }))
+
       staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(395), w: W - px(120), h: px(32),
-        text: 'Fed Today',
-        text_size: px(20),
+        x: CX - badgeW / 2,
+        y: feedY + px(6),
+        w: badgeW,
+        h: px(22),
+        text: '✓ Fed Today',
+        text_size: px(16),
         color: COLORS.success,
         align_h: hmUI.align.CENTER_H
       }))
     } else if (pendingLifeForce === 0) {
       staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(395), w: W - px(120), h: px(32),
+        x: px(60), y: feedY, w: W - px(120), h: px(32),
         text: 'Get active to feed!',
-        text_size: px(18),
+        text_size: px(16),
         color: COLORS.textMuted,
         align_h: hmUI.align.CENTER_H
       }))
     } else {
-      this.createFeedButton()
-    }
+      // Feed button with glow
+      const btnW = px(160)
+      const btnH = px(44)
+      const btnX = CX - btnW / 2
+      const color = COLORS[dominant]
+      const glowColor = COLORS[`${dominant}Glow`]
 
-    // Page dots
-    this.createPageDots(px(458))
+      // Button glow
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: btnX - px(6),
+        y: feedY - px(6),
+        w: btnW + px(12),
+        h: btnH + px(12),
+        radius: (btnH + px(12)) / 2,
+        color: glowColor
+      }))
+
+      // Button border glow
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: btnX - px(2),
+        y: feedY - px(2),
+        w: btnW + px(4),
+        h: btnH + px(4),
+        radius: (btnH + px(4)) / 2,
+        color: color
+      }))
+
+      // Button
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: btnX, y: feedY, w: btnW, h: btnH,
+        radius: btnH / 2,
+        normal_color: COLORS.success,
+        press_color: COLORS.successDark,
+        text: `Feed +${pendingLifeForce}`,
+        text_size: px(18),
+        color: COLORS.textPrimary,
+        click_func: () => this.onFeed()
+      }))
+    }
+  },
+
+  drawPageDots() {
+    const dotY = px(455)
+    const dotSize = px(8)
+    const activeDotSize = px(10)
+    const dotSpacing = px(18)
+    const numDots = 5
+    const totalW = (numDots - 1) * dotSpacing + dotSize
+    const startX = CX - totalW / 2
+
+    for (let i = 0; i < numDots; i++) {
+      const isActive = i === 0 // Home is page 1 (index 0)
+      const size = isActive ? activeDotSize : dotSize
+      const offset = isActive ? (activeDotSize - dotSize) / 2 : 0
+
+      if (isActive) {
+        // Glow for active dot
+        staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: startX + i * dotSpacing - offset - px(2),
+          y: dotY - offset - px(2),
+          w: size + px(4),
+          h: size + px(4),
+          radius: (size + px(4)) / 2,
+          color: COLORS.bgCardLight
+        }))
+      }
+
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: startX + i * dotSpacing - offset,
+        y: dotY - offset,
+        w: size,
+        h: size,
+        radius: size / 2,
+        color: isActive ? COLORS.textPrimary : COLORS.textMuted
+      }))
+    }
   },
 
   buildBlob(scale = 1.0, yOffset = 0, xOffset = 0, frame = 0) {
@@ -245,67 +594,6 @@ Page({
 
     // Use the shapes module for affinity-based blob with traits
     blobWidgets = createCompleteBlob(creature, blobX, blobY, Math.round(baseSize * scale), px, frame)
-  },
-
-  createProgressBar() {
-    const evoProgress = this.getEvolutionProgress()
-    const barW = px(240)
-    const barX = CX - barW / 2
-    const barY = px(340)
-    const barH = px(14)
-    const color = this.getCreatureColor()
-
-    progressWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: barX, y: barY, w: barW, h: barH,
-      radius: barH / 2,
-      color: COLORS.barBg
-    }))
-
-    const fillWidth = Math.max(0, Math.round((barW - px(4)) * Math.min(100, evoProgress) / 100))
-    if (fillWidth > 0) {
-      progressWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: barX + px(2),
-        y: barY + px(2),
-        w: fillWidth,
-        h: barH - px(4),
-        radius: (barH - px(4)) / 2,
-        color: color
-      }))
-    }
-  },
-
-  createPageDots(y) {
-    const dotSize = px(6)
-    const spacing = px(14)
-    const totalW = 5 * dotSize + 4 * (spacing - dotSize)
-    const startX = CX - totalW / 2
-
-    for (let i = 0; i < 5; i++) {
-      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: startX + i * spacing, y: y,
-        w: dotSize, h: dotSize,
-        radius: dotSize / 2,
-        color: i === 0 ? COLORS.textPrimary : COLORS.textDark
-      }))
-    }
-  },
-
-  createFeedButton() {
-    const btnW = px(160)
-    const btnH = px(44)
-    const btnX = CX - btnW / 2
-    const btnY = px(390)
-
-    staticWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: btnX, y: btnY, w: btnW, h: btnH,
-      radius: btnH / 2,
-      normal_color: COLORS.success,
-      press_color: COLORS.successDark,
-      text: `Feed +${pendingLifeForce}`,
-      text_size: px(18),
-      color: COLORS.textPrimary,
-      click_func: () => this.onFeed()
-    }))
   },
 
   // ==================== ANIMATIONS ====================
