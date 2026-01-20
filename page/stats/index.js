@@ -179,7 +179,7 @@ Page({
 
   drawTitle() {
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: 0, y: px(25), w: W, h: px(24),
+      x: 0, y: px(40), w: W, h: px(24),
       text: 'ATTRIBUTES',
       text_size: px(16),
       color: COLORS.textMuted,
@@ -188,7 +188,7 @@ Page({
   },
 
   drawTypeBadge(dominant) {
-    const badgeY = px(52)
+    const badgeY = px(68)
     const badgeW = px(130)
     const badgeH = px(36)
     const color = COLORS[dominant]
@@ -241,7 +241,7 @@ Page({
   },
 
   drawStatCards(affinities, dominant) {
-    const cardY = px(110)
+    const cardY = px(125)
     const cardH = px(80)
     const cardGap = px(6)
     const totalWidth = W - px(80)  // More margin for round screen edges
@@ -339,7 +339,7 @@ Page({
   },
 
   drawActivitySection() {
-    const sectionY = px(210)
+    const sectionY = px(225)
 
     // Section header with decorative lines
     const lineW = px(60)
