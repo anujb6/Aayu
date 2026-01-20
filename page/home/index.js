@@ -948,7 +948,8 @@ Page({
         creature.evolutionHistory.push(`${dominantAffinity}_${creature.stage}`)
 
         creature.stage++
-        creature.currentStageXP = 0
+        // Carry over excess XP to the new stage
+        creature.currentStageXP = creature.currentStageXP - threshold
         creature.daysInStage = 0
       }
 
