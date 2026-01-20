@@ -10,7 +10,8 @@ import {
   getTraitRarity,
   getUnlockRequirementText,
   getTraitProgress,
-  toggleTrait
+  toggleTrait,
+  checkUnlockConditions
 } from '../../lib/traits'
 
 let W = 480
@@ -114,10 +115,41 @@ Page({
 
   buildUI() {
     const allTraits = getAllTraits()
-    const activeTraits = creature?.activeTraits || []
-    const unlockedSet = new Set(creature?.unlockedTraits || [])
+    const allTraitIds = new Set(allTraits.map(t => t.id))
+    const activeTraits = (creature?.activeTraits || []).filter(id => allTraitIds.has(id))
+
+    // Only count unlocked traits that exist in current trait definitions
+    const storedUnlocked = creature?.unlockedTraits || []
+    const validUnlocked = storedUnlocked.filter(id => allTraitIds.has(id))
+
+    // Auto-unlock traits that meet requirements
+    let newlyUnlocked = []
+    if (creature) {
+      newlyUnlocked = checkUnlockConditions({ ...creature, unlockedTraits: validUnlocked })
+      if (newlyUnlocked.length > 0) {
+        validUnlocked.push(...newlyUnlocked)
+      }
+    }
+
+    const unlockedSet = new Set(validUnlocked)
     const unlockedCount = unlockedSet.size
     const totalCount = allTraits.length
+
+    // Save if traits changed (cleanup or new unlocks)
+    const needsSave = creature && (
+      validUnlocked.length !== storedUnlocked.length ||
+      activeTraits.length !== (creature.activeTraits || []).length ||
+      newlyUnlocked.length > 0
+    )
+    if (needsSave) {
+      creature.unlockedTraits = validUnlocked
+      creature.activeTraits = activeTraits
+      try {
+        const app = getApp()
+        app.globalData.creature = creature
+        if (app.setCreature) app.setCreature(creature)
+      } catch (e) {}
+    }
 
     // Get progress info for all traits
     const traitProgressList = getTraitProgress(creature || { totalXP: 0, currentStreak: 0, longestStreak: 0, unlockedTraits: [], activeTraits: [] })
