@@ -6,7 +6,7 @@ import { Step, Distance, Calorie, Pai, HeartRate } from '@zos/sensor'
 import { startAnimation, stopAnimation, stopAllAnimations as stopAllAnimationsFromModule, ANIMATION_CONFIG, easeInOutCubic } from '../../lib/animation'
 import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } from '../../lib/shapes'
 import { checkUnlockConditions } from '../../lib/traits'
-import { STAGE_NAMES, EVOLUTION_THRESHOLDS, STAGE_SIZES, canEvolve, evolve, getEvolutionProgress as getEvoProgress } from '../../lib/evolution'
+import { STAGE_NAMES, EVOLUTION_THRESHOLDS, STAGE_SIZES, canEvolve, evolve, getEvolutionProgress as getEvoProgress, getStreakBonus, checkEvolutionRequirements } from '../../lib/evolution'
 import { getDateString, isSameDate, isYesterday } from '../../lib/creature'
 
 // Get screen dimensions with fallback
@@ -76,6 +76,9 @@ const AFFINITY_ICONS = {
 
 const BASE_BLOB_SIZE = 100
 
+// PAI threshold to unlock feeding (earned since last feed)
+const PAI_FEED_THRESHOLD = 5
+
 // Widget arrays
 let staticWidgets = []      // Background, text (never animated)
 let blobWidgets = []        // Blob body, eyes (animated)
@@ -85,7 +88,7 @@ let progressWidgets = []    // XP bar
 // State
 let creature = null
 let pendingLifeForce = 0
-let hasBeenFedToday = false
+let canFeed = false
 let todayActivity = { steps: 0, distance: 0, calories: 0, paiToday: 0, peakHeartRate: 0 }
 let isAnimating = false
 let blinkTimer = null
@@ -105,21 +108,11 @@ Page({
       creature = null
     }
 
-    if (creature && creature.lastFedAt) {
-      try {
-        const lastFedDate = new Date(creature.lastFedAt).toISOString().split('T')[0]
-        const today = new Date().toISOString().split('T')[0]
-        hasBeenFedToday = lastFedDate === today
-      } catch (e) {
-        hasBeenFedToday = false
-      }
-    }
-
     this.loadTodayActivity()
 
-    if (!hasBeenFedToday) {
-      pendingLifeForce = this.calculateLifeForce()
-    }
+    // Calculate pending life force (PAI delta since last feed)
+    pendingLifeForce = this.calculateLifeForce()
+    canFeed = pendingLifeForce >= PAI_FEED_THRESHOLD
   },
 
   loadTodayActivity() {
@@ -152,10 +145,27 @@ Page({
   },
 
   calculateLifeForce() {
-    // PAI-based XP: Direct 1:1 mapping
-    // PAI already factors in HR intensity, duration, and personal fitness
-    // Max ~75 PAI per day (natural cap)
-    return Math.floor(todayActivity.paiToday || 0)
+    // PAI-delta based XP: Reward new activity since last feed
+    // Allows multiple feeds per day if user does multiple workouts
+    const currentPai = todayActivity.paiToday || 0
+
+    // Determine baseline PAI (what we've already rewarded)
+    let baseline = 0
+    if (creature && creature.lastFedAt) {
+      try {
+        const lastFedDate = new Date(creature.lastFedAt).toISOString().split('T')[0]
+        const today = new Date().toISOString().split('T')[0]
+        if (lastFedDate === today) {
+          // Same day: use lastFedPai as baseline
+          baseline = creature.lastFedPai || 0
+        }
+        // Different day: baseline stays 0 (fresh start)
+      } catch (e) {
+        baseline = 0
+      }
+    }
+
+    return Math.max(0, Math.floor(currentPai - baseline))
   },
 
   build() {
@@ -483,40 +493,8 @@ Page({
   drawFeedSection(dominant) {
     const feedY = px(395)
 
-    if (hasBeenFedToday) {
-      // Fed today badge
-      const badgeW = px(130)
-      const badgeH = px(32)
-
-      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: CX - badgeW / 2,
-        y: feedY,
-        w: badgeW,
-        h: badgeH,
-        radius: badgeH / 2,
-        color: COLORS.bgCard
-      }))
-
-      staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: CX - badgeW / 2,
-        y: feedY + px(6),
-        w: badgeW,
-        h: px(22),
-        text: '✓ Fed Today',
-        text_size: px(16),
-        color: COLORS.success,
-        align_h: hmUI.align.CENTER_H
-      }))
-    } else if (pendingLifeForce === 0) {
-      staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: feedY, w: W - px(120), h: px(32),
-        text: 'Get active to feed!',
-        text_size: px(16),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
-    } else {
-      // Feed button with glow
+    if (canFeed) {
+      // Feed button with glow - enough PAI earned since last feed
       const btnW = px(160)
       const btnH = px(44)
       const btnX = CX - btnW / 2
@@ -553,6 +531,25 @@ Page({
         text_size: px(18),
         color: COLORS.textPrimary,
         click_func: () => this.onFeed()
+      }))
+    } else if (pendingLifeForce > 0) {
+      // Partial progress - show how much more PAI needed
+      const remaining = PAI_FEED_THRESHOLD - pendingLifeForce
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: px(60), y: feedY, w: W - px(120), h: px(32),
+        text: `${remaining} more PAI to feed`,
+        text_size: px(16),
+        color: COLORS.textMuted,
+        align_h: hmUI.align.CENTER_H
+      }))
+    } else {
+      // No activity yet
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: px(60), y: feedY, w: W - px(120), h: px(32),
+        text: 'Get active to feed!',
+        text_size: px(16),
+        color: COLORS.textMuted,
+        align_h: hmUI.align.CENTER_H
       }))
     }
   },
@@ -890,12 +887,16 @@ Page({
   // ==================== FEED LOGIC ====================
 
   onFeed() {
-    if (hasBeenFedToday || pendingLifeForce <= 0 || !creature || isAnimating) return
+    if (!canFeed || !creature || isAnimating) return
 
-    // Check if will evolve
+    // Check if will evolve after adding XP
+    const streakMultiplier = getStreakBonus(creature.currentStreak)
+    const xpWithBonus = Math.round(pendingLifeForce * streakMultiplier)
+    const evoReqs = checkEvolutionRequirements(creature)
     const threshold = EVOLUTION_THRESHOLDS[creature.stage]
-    const willEvolve = threshold &&
-                       (creature.currentStageXP + pendingLifeForce) >= threshold &&
+    // Will evolve if: days requirement met AND XP after feed meets threshold
+    const willEvolve = evoReqs.daysMet && threshold &&
+                       (creature.currentStageXP + xpWithBonus) >= threshold &&
                        creature.stage < 6
     const oldStage = creature.stage
 
@@ -924,8 +925,11 @@ Page({
       const isNewDay = !isSameDate(creature.lastFedDate, today)
 
       // XP always stacks (multiple feeds per day add XP)
-      creature.totalXP += pendingLifeForce
-      creature.currentStageXP += pendingLifeForce
+      // Apply streak bonus to XP
+      const streakMultiplier = getStreakBonus(creature.currentStreak)
+      const xpWithBonus = Math.round(pendingLifeForce * streakMultiplier)
+      creature.totalXP += xpWithBonus
+      creature.currentStageXP += xpWithBonus
       creature.mood = Math.min(100, creature.mood + 25)
       creature.lastFedAt = Date.now()
 
@@ -973,19 +977,10 @@ Page({
         creature.affinities.power = Math.max(0, creature.affinities.power - 1)
       }
 
-      // Evolution check
-      const threshold = EVOLUTION_THRESHOLDS[creature.stage]
-      if (threshold && creature.currentStageXP >= threshold && creature.stage < 6) {
-        // Record evolution history before changing stage
-        const dominantAffinity = getShapeType(creature.affinities)
-        creature.evolutionHistory = creature.evolutionHistory || []
-        creature.evolutionHistory.push(`${dominantAffinity}_${creature.stage}`)
-
-        creature.stage++
-        // Carry over excess XP to the new stage
-        creature.currentStageXP = creature.currentStageXP - threshold
-        // Reset stageStartDate to today for the new stage
-        creature.stageStartDate = today
+      // Evolution check - uses canEvolve() which checks both XP and minimum days
+      if (canEvolve(creature)) {
+        // evolve() handles history, stage increment, excess XP carry-over, and stageStartDate reset
+        evolve(creature)
       }
 
       // Check for new trait unlocks
@@ -995,11 +990,15 @@ Page({
         creature.unlockedTraits.push(...newTraits)
       }
 
+      // Save current PAI as baseline for next feed calculation
+      creature.lastFedPai = todayActivity.paiToday || 0
+
       app.globalData.creature = creature
       if (app.setCreature) app.setCreature(creature)
 
-      hasBeenFedToday = true
+      // Reset feed state
       pendingLifeForce = 0
+      canFeed = false
     } catch (e) {}
   },
 

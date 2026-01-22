@@ -38,9 +38,6 @@
             "page/traits/index",
             "page/collection/index"
           ]
-        },
-        "watchface": {
-          "path": "watchface/index"
         }
       },
       "platforms": [

@@ -124,7 +124,9 @@ Page({
 
     try {
       const hrSensor = new HeartRate()
-      sensorData.heartRate = hrSensor.getCurrent() || 0
+      // Use getLast() for most recent background measurement
+      // getCurrent() only works during active real-time monitoring
+      sensorData.heartRate = hrSensor.getLast() || 0
     } catch (e) {}
 
     try {
