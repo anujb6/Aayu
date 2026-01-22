@@ -3,7 +3,7 @@ import { getDeviceInfo } from '@zos/device'
 import { push, back } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
 import { getShapeType, AFFINITY_COLORS } from '../../lib/shapes'
-import { STAGE_NAMES, EVOLUTION_THRESHOLDS, MIN_DAYS_PER_STAGE } from '../../lib/evolution'
+import { STAGE_NAMES, EVOLUTION_THRESHOLDS, MIN_DAYS_PER_STAGE, canEvolve as checkCanEvolve } from '../../lib/evolution'
 import { getDaysInStage } from '../../lib/creature'
 
 // Get device dimensions for responsive design
@@ -134,7 +134,7 @@ Page({
     const daysProgress = Math.min(100, Math.round((daysInStage / minDays) * 100))
     const xpMet = creature.currentStageXP >= threshold
     const daysMet = daysInStage >= minDays
-    const canEvolve = stage < 6 && xpMet && daysMet
+    const canEvolve = checkCanEvolve(creature)
     const isMaxStage = stage >= 6
 
     // Get stage color
