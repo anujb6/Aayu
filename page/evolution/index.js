@@ -4,6 +4,7 @@ import { push, back } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
 import { getShapeType, AFFINITY_COLORS } from '../../lib/shapes'
 import { STAGE_NAMES, EVOLUTION_THRESHOLDS, MIN_DAYS_PER_STAGE } from '../../lib/evolution'
+import { getDaysInStage } from '../../lib/creature'
 
 // Get device dimensions for responsive design
 let W = 480
@@ -127,10 +128,12 @@ Page({
     const stage = creature.stage || 1
     const threshold = EVOLUTION_THRESHOLDS[stage] || 999999
     const minDays = MIN_DAYS[stage] || 999
+    // Calculate daysInStage dynamically from stageStartDate
+    const daysInStage = getDaysInStage(creature)
     const xpProgress = Math.min(100, Math.round((creature.currentStageXP / threshold) * 100))
-    const daysProgress = Math.min(100, Math.round((creature.daysInStage / minDays) * 100))
+    const daysProgress = Math.min(100, Math.round((daysInStage / minDays) * 100))
     const xpMet = creature.currentStageXP >= threshold
-    const daysMet = creature.daysInStage >= minDays
+    const daysMet = daysInStage >= minDays
     const canEvolve = stage < 6 && xpMet && daysMet
     const isMaxStage = stage >= 6
 
@@ -152,9 +155,9 @@ Page({
 
     // 4. Progress bars (XP and Days)
     if (!isMaxStage) {
-      this.drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve)
+      this.drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve, daysInStage)
     } else {
-      this.drawMaxStageInfo()
+      this.drawMaxStageInfo(daysInStage)
     }
 
     // 5. Stage progression dots at bottom
@@ -336,7 +339,7 @@ Page({
     }))
   },
 
-  drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve) {
+  drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve, daysInStage) {
     const sectionY = px(290)
     const barWidth = W - px(100)
     const barX = px(50)
@@ -361,7 +364,7 @@ Page({
       daysMet ? COLORS.success : stageColor,
       daysMet,
       'DAYS',
-      `${creature.daysInStage}/${MIN_DAYS[creature.stage]}`
+      `${daysInStage}/${MIN_DAYS[creature.stage]}`
     )
 
     // Status text
@@ -377,7 +380,7 @@ Page({
     } else {
       const remaining = []
       if (!xpMet) remaining.push(`${EVOLUTION_THRESHOLDS[creature.stage] - creature.currentStageXP} XP`)
-      if (!daysMet) remaining.push(`${MIN_DAYS[creature.stage] - creature.daysInStage} days`)
+      if (!daysMet) remaining.push(`${MIN_DAYS[creature.stage] - daysInStage} days`)
       widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
         x: 0, y: statusY, w: W, h: px(20),
         text: `Need: ${remaining.join(', ')}`,
@@ -457,7 +460,7 @@ Page({
     }
   },
 
-  drawMaxStageInfo() {
+  drawMaxStageInfo(daysInStage) {
     const infoY = px(290)
 
     // Stats display
@@ -488,7 +491,7 @@ Page({
     // Days
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
       x: W / 2, y: infoY + px(30), w: W / 2, h: px(18),
-      text: `${creature.daysInStage}+`,
+      text: `${daysInStage}+`,
       text_size: px(16),
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H

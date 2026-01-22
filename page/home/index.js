@@ -7,6 +7,7 @@ import { startAnimation, stopAnimation, stopAllAnimations as stopAllAnimationsFr
 import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } from '../../lib/shapes'
 import { checkUnlockConditions } from '../../lib/traits'
 import { STAGE_NAMES, EVOLUTION_THRESHOLDS, STAGE_SIZES, canEvolve, evolve, getEvolutionProgress as getEvoProgress } from '../../lib/evolution'
+import { getDateString, isSameDate, isYesterday } from '../../lib/creature'
 
 // Get screen dimensions with fallback
 let W = 480
@@ -919,17 +920,34 @@ Page({
   applyFeedChanges() {
     try {
       const app = getApp()
+      const today = getDateString()
+      const isNewDay = !isSameDate(creature.lastFedDate, today)
 
+      // XP always stacks (multiple feeds per day add XP)
       creature.totalXP += pendingLifeForce
       creature.currentStageXP += pendingLifeForce
       creature.mood = Math.min(100, creature.mood + 25)
       creature.lastFedAt = Date.now()
-      creature.totalDaysFed++
-      creature.daysInStage++
-      creature.currentStreak++
 
-      if (creature.currentStreak > creature.longestStreak) {
-        creature.longestStreak = creature.currentStreak
+      // Day-based counters only increment once per calendar day
+      if (isNewDay) {
+        creature.totalDaysFed++
+
+        // Update streak: check if yesterday was fed
+        if (creature.lastFedDate === null || isYesterday(creature.lastFedDate, today)) {
+          // First feed ever or fed yesterday - continue/start streak
+          creature.currentStreak++
+        } else {
+          // Missed one or more days - reset streak
+          creature.currentStreak = 1
+        }
+
+        if (creature.currentStreak > creature.longestStreak) {
+          creature.longestStreak = creature.currentStreak
+        }
+
+        // Update lastFedDate to today
+        creature.lastFedDate = today
       }
 
       // Update affinities based on heart rate intensity
@@ -966,7 +984,8 @@ Page({
         creature.stage++
         // Carry over excess XP to the new stage
         creature.currentStageXP = creature.currentStageXP - threshold
-        creature.daysInStage = 0
+        // Reset stageStartDate to today for the new stage
+        creature.stageStartDate = today
       }
 
       // Check for new trait unlocks
