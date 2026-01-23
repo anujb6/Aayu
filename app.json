@@ -14,6 +14,7 @@
   },
   "permissions": [
     "device:os.local_storage",
+    "device:os.alarm",
     "data:user.hd.heart_rate",
     "data:user.hd.step",
     "data:user.hd.distance",
@@ -36,7 +37,8 @@
             "page/stats/index",
             "page/evolution/index",
             "page/traits/index",
-            "page/collection/index"
+            "page/collection/index",
+            "page/settings/index"
           ]
         }
       },

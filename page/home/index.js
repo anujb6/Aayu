@@ -8,6 +8,7 @@ import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } fro
 import { checkUnlockConditions } from '../../lib/traits'
 import { STAGE_NAMES, EVOLUTION_THRESHOLDS, STAGE_SIZES, canEvolve, evolve, getEvolutionProgress as getEvoProgress, getStreakBonus, checkEvolutionRequirements } from '../../lib/evolution'
 import { getDateString, isSameDate, isYesterday } from '../../lib/creature'
+import { handleReminderTrigger, wasCreatureFedToday } from '../../lib/reminder'
 
 // Get screen dimensions with fallback
 let W = 480
@@ -100,7 +101,7 @@ let currentXOffset = 0
 let currentFrame = 0
 
 Page({
-  onInit() {
+  onInit(params) {
     try {
       const app = getApp()
       creature = app?.globalData?.creature || null
@@ -113,6 +114,13 @@ Page({
     // Calculate pending life force (PAI delta since last feed)
     pendingLifeForce = this.calculateLifeForce()
     canFeed = pendingLifeForce >= PAI_FEED_THRESHOLD
+
+    // Handle reminder trigger - show notification if creature not fed today
+    if (params && params.indexOf && params.indexOf('reminder=true') !== -1) {
+      if (creature && !wasCreatureFedToday(creature)) {
+        handleReminderTrigger(creature)
+      }
+    }
   },
 
   loadTodayActivity() {

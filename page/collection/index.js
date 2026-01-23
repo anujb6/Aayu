@@ -1,7 +1,7 @@
 import * as hmUI from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
-import { back } from '@zos/router'
-import { onGesture, offGesture, GESTURE_RIGHT } from '@zos/interaction'
+import { push, back } from '@zos/router'
+import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
 
 // ============================================
 // RESPONSIVE SETUP - Get device dimensions
@@ -88,6 +88,10 @@ Page({
   setupGestures() {
     onGesture({
       callback: (event) => {
+        if (event === GESTURE_LEFT) {
+          push({ url: 'page/settings/index' })
+          return true
+        }
         if (event === GESTURE_RIGHT) {
           back()
           return true
