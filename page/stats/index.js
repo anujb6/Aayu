@@ -2,7 +2,7 @@ import * as hmUI from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { push, back } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
-import { Step, Distance, HeartRate, Calorie } from '@zos/sensor'
+import { Step, Distance, Calorie } from '@zos/sensor'
 
 // ============================================
 // RESPONSIVE SETUP - Get device dimensions
@@ -72,7 +72,7 @@ const AFFINITY_NAMES = {
 
 let widgets = []
 let creature = null
-let sensorData = { steps: 0, distance: 0, heartRate: 0, calories: 0 }
+let sensorData = { steps: 0, distance: 0, calories: 0 }
 
 Page({
   onInit() {
@@ -120,13 +120,6 @@ Page({
     try {
       const distSensor = new Distance()
       sensorData.distance = distSensor.getCurrent() || 0
-    } catch (e) {}
-
-    try {
-      const hrSensor = new HeartRate()
-      // Use getLast() for most recent background measurement
-      // getCurrent() only works during active real-time monitoring
-      sensorData.heartRate = hrSensor.getLast() || 0
     } catch (e) {}
 
     try {
@@ -386,23 +379,18 @@ Page({
     const startX = px(40)  // Pushed in from edges
 
     // Format data
-    const heartRate = sensorData.heartRate > 0 ? `${sensorData.heartRate}` : '--'
     const distKm = (sensorData.distance / 1000).toFixed(1)
 
     const activities = [
       { icon: '👟', value: `${sensorData.steps}`, label: 'STEPS', color: COLORS.speed },
       { icon: '📍', value: distKm, label: 'KM', color: COLORS.power },
-      { icon: '❤️', value: heartRate, label: 'BPM', color: COLORS.endurance }
+      { icon: '🔥', value: `${sensorData.calories}`, label: 'KCAL', color: COLORS.endurance }
     ]
 
     activities.forEach((activity, index) => {
       const cardX = startX + index * (cardW + cardGap)
       this.drawActivityCard(cardX, cardY, cardW, cardH, activity)
     })
-
-    // Calories row (centered below)
-    const calY = cardY + cardH + px(15)
-    this.drawCaloriesDisplay(calY)
   },
 
   drawActivityCard(x, y, w, h, activity) {
@@ -440,32 +428,6 @@ Page({
       text: activity.label,
       text_size: px(10),
       color: COLORS.textMuted,
-      align_h: hmUI.align.CENTER_H
-    }))
-  },
-
-  drawCaloriesDisplay(y) {
-    const displayW = px(140)
-
-    // Background pill
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: CX - displayW / 2,
-      y: y,
-      w: displayW,
-      h: px(32),
-      radius: px(16),
-      color: COLORS.bgCard
-    }))
-
-    // Calories text
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: CX - displayW / 2,
-      y: y + px(6),
-      w: displayW,
-      h: px(20),
-      text: `🔥 ${sensorData.calories} kcal`,
-      text_size: px(13),
-      color: COLORS.textSecondary,
       align_h: hmUI.align.CENTER_H
     }))
   },

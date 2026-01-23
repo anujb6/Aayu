@@ -2,7 +2,7 @@ import * as hmUI from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { push } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT } from '@zos/interaction'
-import { Step, Distance, Calorie, Pai, HeartRate } from '@zos/sensor'
+import { Step, Distance, Calorie, Pai } from '@zos/sensor'
 import { startAnimation, stopAnimation, stopAllAnimations as stopAllAnimationsFromModule, ANIMATION_CONFIG, easeInOutCubic } from '../../lib/animation'
 import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } from '../../lib/shapes'
 import { checkUnlockConditions } from '../../lib/traits'
@@ -89,7 +89,7 @@ let progressWidgets = []    // XP bar
 let creature = null
 let pendingLifeForce = 0
 let canFeed = false
-let todayActivity = { steps: 0, distance: 0, calories: 0, paiToday: 0, peakHeartRate: 0 }
+let todayActivity = { steps: 0, distance: 0, calories: 0, paiToday: 0 }
 let isAnimating = false
 let blinkTimer = null
 
@@ -137,11 +137,6 @@ Page({
       todayActivity.paiToday = paiSensor.getToday() || 0
     } catch (e) {}
 
-    // Heart rate for affinity determination
-    try {
-      const hrSensor = new HeartRate()
-      todayActivity.peakHeartRate = hrSensor.getLast() || 0
-    } catch (e) {}
   },
 
   calculateLifeForce() {
@@ -954,24 +949,27 @@ Page({
         creature.lastFedDate = today
       }
 
-      // Update affinities based on heart rate intensity
-      // High HR (150+) = Speed (HIIT, sprints)
-      // Medium HR (130-150) = Power (moderate intensity)
-      // Low HR (<130) = Endurance (steady cardio, zone 2)
-      const peakHR = todayActivity.peakHeartRate || 0
+      // Update affinities based on activity metrics
+      // Speed: High movement (8000+ steps OR 5+ km distance)
+      // Power: High intensity (300+ calories burned)
+      // Endurance: Consistent activity (has PAI)
+      const steps = todayActivity.steps || 0
+      const calories = todayActivity.calories || 0
+      const paiToday = todayActivity.paiToday || 0
+      const distanceKm = (todayActivity.distance || 0) / 1000
 
-      if (peakHR >= 150) {
-        // High intensity workout → Speed affinity
+      if (steps >= 8000 || distanceKm >= 5) {
+        // High movement → Speed affinity
         creature.affinities.speed = Math.min(100, creature.affinities.speed + 2)
         creature.affinities.power = Math.max(0, creature.affinities.power - 1)
         creature.affinities.endurance = Math.max(0, creature.affinities.endurance - 1)
-      } else if (peakHR >= 130) {
-        // Moderate intensity → Power affinity
+      } else if (calories >= 300) {
+        // High intensity → Power affinity
         creature.affinities.power = Math.min(100, creature.affinities.power + 2)
         creature.affinities.speed = Math.max(0, creature.affinities.speed - 1)
         creature.affinities.endurance = Math.max(0, creature.affinities.endurance - 1)
-      } else if (pendingLifeForce > 0) {
-        // Low intensity or steady cardio → Endurance affinity
+      } else if (paiToday > 0) {
+        // Consistent activity → Endurance affinity
         creature.affinities.endurance = Math.min(100, creature.affinities.endurance + 2)
         creature.affinities.speed = Math.max(0, creature.affinities.speed - 1)
         creature.affinities.power = Math.max(0, creature.affinities.power - 1)
