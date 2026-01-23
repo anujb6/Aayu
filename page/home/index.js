@@ -2,7 +2,7 @@ import * as hmUI from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { push } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT } from '@zos/interaction'
-import { Step, Distance, Calorie, Pai } from '@zos/sensor'
+import { Step, Distance, Calorie, Pai, HeartRate, FatBurning } from '@zos/sensor'
 import { startAnimation, stopAnimation, stopAllAnimations as stopAllAnimationsFromModule, ANIMATION_CONFIG, easeInOutCubic } from '../../lib/animation'
 import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } from '../../lib/shapes'
 import { checkUnlockConditions } from '../../lib/traits'
@@ -135,6 +135,18 @@ Page({
     try {
       const paiSensor = new Pai()
       todayActivity.paiToday = paiSensor.getToday() || 0
+    } catch (e) {}
+
+    // Heart rate for power calculation
+    try {
+      const hrSensor = new HeartRate()
+      todayActivity.heartRate = hrSensor.getLast() || 0
+    } catch (e) {}
+
+    // Fat burn minutes for endurance calculation
+    try {
+      const fatBurnSensor = new FatBurning()
+      todayActivity.fatBurnMinutes = fatBurnSensor.getCurrent() || 0
     } catch (e) {}
 
   },
@@ -950,30 +962,42 @@ Page({
       }
 
       // Update affinities based on activity metrics
-      // Speed: High movement (8000+ steps OR 5+ km distance)
-      // Power: High intensity (300+ calories burned)
-      // Endurance: Consistent activity (has PAI)
       const steps = todayActivity.steps || 0
-      const calories = todayActivity.calories || 0
-      const paiToday = todayActivity.paiToday || 0
       const distanceKm = (todayActivity.distance || 0) / 1000
+      const calories = todayActivity.calories || 0
+      const heartRate = todayActivity.heartRate || 0
+      const fatBurnMinutes = todayActivity.fatBurnMinutes || 0
+      const streak = creature.currentStreak || 0
 
-      if (steps >= 8000 || distanceKm >= 5) {
-        // High movement → Speed affinity
-        creature.affinities.speed = Math.min(100, creature.affinities.speed + 2)
-        creature.affinities.power = Math.max(0, creature.affinities.power - 1)
-        creature.affinities.endurance = Math.max(0, creature.affinities.endurance - 1)
-      } else if (calories >= 300) {
-        // High intensity → Power affinity
-        creature.affinities.power = Math.min(100, creature.affinities.power + 2)
-        creature.affinities.speed = Math.max(0, creature.affinities.speed - 1)
-        creature.affinities.endurance = Math.max(0, creature.affinities.endurance - 1)
-      } else if (paiToday > 0) {
-        // Consistent activity → Endurance affinity
-        creature.affinities.endurance = Math.min(100, creature.affinities.endurance + 2)
-        creature.affinities.speed = Math.max(0, creature.affinities.speed - 1)
-        creature.affinities.power = Math.max(0, creature.affinities.power - 1)
-      }
+      // Speed: based on movement (steps + distance)
+      // High steps/distance = cardio activities like running, walking, cycling
+      let speedBoost = 0
+      if (steps >= 10000 || distanceKm >= 7) speedBoost = 3
+      else if (steps >= 5000 || distanceKm >= 3) speedBoost = 2
+      else if (steps >= 2000 || distanceKm >= 1) speedBoost = 1
+
+      // Power: based on intensity (calories relative to steps)
+      // High calories with low steps = strength/swimming (intense without much walking)
+      let powerBoost = 0
+      const caloriesPerStep = steps > 0 ? calories / steps : calories
+      if (calories >= 300 && caloriesPerStep >= 0.05) powerBoost = 3      // High intensity
+      else if (calories >= 150 && caloriesPerStep >= 0.03) powerBoost = 2 // Moderate intensity
+      else if (calories >= 50 || heartRate >= 120) powerBoost = 1         // Some intensity
+
+      // Endurance: based on sustained effort (PAI + fat burn minutes + streak)
+      // PAI reflects overall sustained activity intensity
+      const paiToday = todayActivity.paiToday || 0
+      let enduranceBoost = 0
+      if (paiToday >= 50 || fatBurnMinutes >= 30) enduranceBoost = 3
+      else if (paiToday >= 25 || fatBurnMinutes >= 15) enduranceBoost = 2
+      else if (paiToday >= 10 || fatBurnMinutes >= 5) enduranceBoost = 1
+      // Streak bonus for consistency
+      if (streak >= 7) enduranceBoost = Math.min(3, enduranceBoost + 1)
+
+      // Apply boosts (no penalties)
+      if (speedBoost > 0) creature.affinities.speed = Math.min(100, creature.affinities.speed + speedBoost)
+      if (powerBoost > 0) creature.affinities.power = Math.min(100, creature.affinities.power + powerBoost)
+      if (enduranceBoost > 0) creature.affinities.endurance = Math.min(100, creature.affinities.endurance + enduranceBoost)
 
       // Evolution check - uses canEvolve() which checks both XP and minimum days
       if (canEvolve(creature)) {
