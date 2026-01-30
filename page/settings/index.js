@@ -10,19 +10,11 @@ import {
   isReminderEnabled
 } from '../../lib/reminder'
 
-let W = 480
-let H = 480
-try {
-  const info = getDeviceInfo()
-  W = info.width || 480
-  H = info.height || 480
-} catch (e) {}
-
-const CX = Math.round(W / 2)
-
-function px(val) {
-  return Math.round(val * W / 480)
-}
+// T-Rex 3 is 480x480 - use fixed values
+const W = 480
+const H = 480
+const CX = 240
+const CY = 240
 
 const COLORS = {
   bgDark: 0x08080c,
@@ -89,161 +81,158 @@ Page({
   },
 
   buildUI() {
+    const margin = 24
+
     // Background
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: W, h: H, color: COLORS.bgDark
     }))
 
-    let y = px(40)
+    let y = 25
 
     // Title
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: 0, y: y, w: W, h: px(40),
+      x: 0, y: y, w: W, h: 32,
       text: 'SETTINGS',
-      text_size: px(24),
+      text_size: 24,
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H,
       align_v: hmUI.align.CENTER_V
     }))
 
-    y += px(60)
+    y += 40
 
     // Reminder Section Header
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(30), y: y, w: W - px(60), h: px(30),
+      x: margin, y: y, w: W - margin * 2, h: 24,
       text: 'Daily Reminder',
-      text_size: px(18),
+      text_size: 18,
       color: COLORS.accent,
       align_h: hmUI.align.LEFT,
       align_v: hmUI.align.CENTER_V
     }))
 
-    y += px(40)
+    y += 28
 
     // Reminder description
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(30), y: y, w: W - px(60), h: px(40),
+      x: margin, y: y, w: W - margin * 2, h: 32,
       text: 'Get notified if you haven\'t\nfed your creature today',
-      text_size: px(14),
+      text_size: 14,
       color: COLORS.textMuted,
       align_h: hmUI.align.LEFT,
       align_v: hmUI.align.TOP
     }))
 
-    y += px(50)
+    y += 38
 
     // Enable/Disable Toggle Card
-    this.buildToggleCard(y)
-    y += px(80)
+    this.buildToggleCard(y, margin)
+    y += 58
 
     // Time Selection (only show if enabled)
     if (settings.enabled) {
-      this.buildTimeSelector(y)
+      this.buildTimeSelector(y, margin)
     }
 
     // Page indicator dot
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: CX - px(4),
-      y: H - px(25),
-      w: px(8),
-      h: px(8),
-      radius: px(4),
+      x: CX - 4,
+      y: H - 20,
+      w: 8,
+      h: 8,
+      radius: 4,
       color: COLORS.textSecondary
     }))
   },
 
-  buildToggleCard(y) {
-    const cardW = W - px(60)
-    const cardH = px(60)
-    const cardX = px(30)
+  buildToggleCard(y, margin) {
+    const cardX = margin
+    const cardW = W - margin * 2  // 480 - 48 = 432
+    const cardH = 50
 
-    // Card background
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+    // BUTTON first (tappable background)
+    widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
       x: cardX, y: y, w: cardW, h: cardH,
-      radius: px(12),
-      color: settings.enabled ? COLORS.bgCardActive : COLORS.bgCard
+      text: '',
+      normal_color: settings.enabled ? COLORS.bgCardActive : COLORS.bgCard,
+      press_color: settings.enabled ? 0x1a5a3a : 0x2a2a3e,
+      radius: 12,
+      click_func: () => this.toggleReminder()
     }))
 
-    // Label
+    // Toggle dimensions
+    const toggleW = 44
+    const toggleH = 24
+    const toggleX = cardX + cardW - toggleW - 12
+    const toggleY = y + (cardH - toggleH) / 2
+
+    // Label on top (width excludes toggle area)
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: cardX + px(15), y: y, w: cardW - px(80), h: cardH,
+      x: cardX + 12, y: y, w: cardW - toggleW - 36, h: cardH,
       text: 'Enable Reminder',
-      text_size: px(16),
+      text_size: 16,
       color: COLORS.textPrimary,
       align_h: hmUI.align.LEFT,
       align_v: hmUI.align.CENTER_V
     }))
 
-    // Toggle indicator
-    const toggleW = px(50)
-    const toggleH = px(28)
-    const toggleX = cardX + cardW - toggleW - px(15)
-    const toggleY = y + (cardH - toggleH) / 2
-
-    // Toggle background
+    // Toggle switch background (44x24)
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: toggleX, y: toggleY, w: toggleW, h: toggleH,
-      radius: px(14),
+      radius: 12,
       color: settings.enabled ? COLORS.toggleOn : COLORS.toggleOff
     }))
 
-    // Toggle knob
-    const knobSize = px(22)
-    const knobX = settings.enabled ? toggleX + toggleW - knobSize - px(3) : toggleX + px(3)
-    const knobY = toggleY + px(3)
-
+    // Toggle knob (18x18)
+    const knobSize = 18
+    const knobX = settings.enabled ? toggleX + toggleW - knobSize - 3 : toggleX + 3
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: knobX, y: knobY, w: knobSize, h: knobSize,
-      radius: px(11),
+      x: knobX, y: toggleY + 3, w: knobSize, h: knobSize,
+      radius: 9,
       color: COLORS.textPrimary
-    }))
-
-    // Invisible button for tap
-    widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
-      x: cardX, y: y, w: cardW, h: cardH,
-      text: '',
-      press_color: 0x333344,
-      normal_color: 0x00000000,
-      click_func: () => {
-        this.toggleReminder()
-      }
     }))
   },
 
-  buildTimeSelector(y) {
+  buildTimeSelector(y, margin) {
     // Section header
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(30), y: y, w: W - px(60), h: px(30),
+      x: margin, y: y, w: W - margin * 2, h: 24,
       text: 'Reminder Time',
-      text_size: px(16),
+      text_size: 16,
       color: COLORS.textSecondary,
       align_h: hmUI.align.LEFT,
       align_v: hmUI.align.CENTER_V
     }))
 
-    y += px(40)
+    y += 28
 
     // Time options
-    const optionH = px(45)
-    const optionW = W - px(60)
+    const optionH = 38
+    const optionGap = 4
+    const optionW = W - margin * 2
 
     for (let i = 0; i < REMINDER_TIMES.length; i++) {
       const time = REMINDER_TIMES[i]
       const isSelected = i === selectedTimeIndex
-      const optionY = y + i * (optionH + px(8))
+      const optionY = y + i * (optionH + optionGap)
+      const index = i
 
-      // Option background
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: px(30), y: optionY, w: optionW, h: optionH,
-        radius: px(10),
-        color: isSelected ? COLORS.accentDark : COLORS.bgCard
+      // BUTTON first (tappable background)
+      widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: margin, y: optionY, w: optionW, h: optionH,
+        text: '',
+        radius: 8,
+        press_color: isSelected ? 0x006699 : 0x252540,
+        normal_color: isSelected ? COLORS.accentDark : COLORS.bgCard,
+        click_func: () => this.selectTime(index)
       }))
 
-      // Time label
+      // Time label on top
       widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(45), y: optionY, w: optionW - px(60), h: optionH,
+        x: margin + 12, y: optionY, w: optionW - 48, h: optionH,
         text: time.label,
-        text_size: px(16),
+        text_size: 16,
         color: isSelected ? COLORS.textPrimary : COLORS.textSecondary,
         align_h: hmUI.align.LEFT,
         align_v: hmUI.align.CENTER_V
@@ -252,26 +241,14 @@ Page({
       // Checkmark for selected
       if (isSelected) {
         widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-          x: px(30) + optionW - px(40), y: optionY, w: px(30), h: optionH,
+          x: margin + optionW - 36, y: optionY, w: 24, h: optionH,
           text: '✓',
-          text_size: px(18),
+          text_size: 16,
           color: COLORS.success,
           align_h: hmUI.align.CENTER_H,
           align_v: hmUI.align.CENTER_V
         }))
       }
-
-      // Invisible button
-      const index = i
-      widgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
-        x: px(30), y: optionY, w: optionW, h: optionH,
-        text: '',
-        press_color: 0x333344,
-        normal_color: 0x00000000,
-        click_func: () => {
-          this.selectTime(index)
-        }
-      }))
     }
   },
 

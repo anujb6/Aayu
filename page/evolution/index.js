@@ -428,9 +428,11 @@ Page({
       color: COLORS.bgCardLight
     }))
 
-    // Bar fill
-    if (progress > 0) {
-      const fillWidth = Math.max(height, Math.round(width * progress / 100))
+    // Bar fill - only show if progress is meaningful (>2%)
+    // Minimum width is height/2 to show a small dot, not a full circle
+    if (progress > 2) {
+      const calculatedWidth = Math.round(width * progress / 100)
+      const fillWidth = Math.max(height / 2, calculatedWidth)
 
       // Glow under bar when complete
       if (isComplete) {

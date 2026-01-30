@@ -7,8 +7,9 @@ import { startAnimation, stopAnimation, stopAllAnimations as stopAllAnimationsFr
 import { createCompleteBlob, getShapeType, getColorPalette, getDarkerColor } from '../../lib/shapes'
 import { checkUnlockConditions } from '../../lib/traits'
 import { STAGE_NAMES, EVOLUTION_THRESHOLDS, STAGE_SIZES, canEvolve, evolve, getEvolutionProgress as getEvoProgress, getStreakBonus, checkEvolutionRequirements } from '../../lib/evolution'
-import { getDateString, isSameDate, isYesterday } from '../../lib/creature'
+import { getDateString, isSameDate, isYesterday, createDefaultCreature } from '../../lib/creature'
 import { handleReminderTrigger, wasCreatureFedToday } from '../../lib/reminder'
+import { canRelease, releaseCreature, getLegacyBonus, getReleasedCount, getLegacyMultiplier } from '../../lib/collection'
 
 // Get screen dimensions with fallback
 let W = 480
@@ -93,6 +94,12 @@ let canFeed = false
 let todayActivity = { steps: 0, distance: 0, calories: 0, paiToday: 0 }
 let isAnimating = false
 let blinkTimer = null
+let pageDestroyed = false
+
+// Release confirmation state
+let showReleaseConfirm = false
+let releaseName = ''
+let releaseWidgets = []
 
 // Animation state
 let currentScale = 1.0
@@ -102,6 +109,7 @@ let currentFrame = 0
 
 Page({
   onInit(params) {
+    pageDestroyed = false  // Reset flag on page init
     try {
       const app = getApp()
       creature = app?.globalData?.creature || null
@@ -120,6 +128,34 @@ Page({
       if (creature && !wasCreatureFedToday(creature)) {
         handleReminderTrigger(creature)
       }
+    }
+  },
+
+  onShow() {
+    // Called every time the page becomes visible (after returning from other pages/workouts)
+    // Recalculate feeding availability with fresh sensor data
+    const oldCreature = creature
+    try {
+      const app = getApp()
+      // Always try to get fresh creature data
+      if (app?.globalData?.creature) {
+        creature = app.globalData.creature
+      }
+    } catch (e) {}
+
+    this.loadTodayActivity()
+
+    const newPendingLifeForce = this.calculateLifeForce()
+    const newCanFeed = newPendingLifeForce >= PAI_FEED_THRESHOLD
+
+    // Rebuild if feed state changed OR creature was loaded/changed
+    const creatureChanged = oldCreature !== creature || (!oldCreature && creature)
+    if (newCanFeed !== canFeed || newPendingLifeForce !== pendingLifeForce || creatureChanged) {
+      pendingLifeForce = newPendingLifeForce
+      canFeed = newCanFeed
+      this.rebuildUI()
+      // Restart idle animation after rebuild
+      this.startIdleAnimation()
     }
   },
 
@@ -168,8 +204,9 @@ Page({
     let baseline = 0
     if (creature && creature.lastFedAt) {
       try {
-        const lastFedDate = new Date(creature.lastFedAt).toISOString().split('T')[0]
-        const today = new Date().toISOString().split('T')[0]
+        // Use getDateString for consistent local timezone handling
+        const lastFedDate = getDateString(creature.lastFedAt)
+        const today = getDateString()
         if (lastFedDate === today) {
           // Same day: use lastFedPai as baseline
           baseline = creature.lastFedPai || 0
@@ -191,6 +228,7 @@ Page({
   },
 
   onDestroy() {
+    pageDestroyed = true  // Prevent new timers from being scheduled
     this.stopAllAnimations()
     offGesture()
     this.cleanup()
@@ -219,6 +257,12 @@ Page({
   },
 
   buildStaticUI() {
+    // Defensive: ensure array is empty before building
+    if (staticWidgets.length > 0) {
+      staticWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
+      staticWidgets = []
+    }
+
     const dominant = this.getDominantAffinity()
 
     // Background
@@ -291,7 +335,7 @@ Page({
       y: bannerY + px(7),
       w: bannerW,
       h: px(26),
-      text: creature.name,
+      text: creature.name || 'Aayu',
       text_size: px(22),
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H
@@ -351,6 +395,51 @@ Page({
       text: badgeText,
       text_size: px(13),
       color: color,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Draw legacy badge if there are released creatures
+    this.drawLegacyBadge()
+  },
+
+  drawLegacyBadge() {
+    const releasedCount = getReleasedCount()
+    if (releasedCount <= 0) return
+
+    const badgeX = W - px(70)
+    const badgeY = px(50)
+    const badgeW = px(55)
+    const badgeH = px(26)
+
+    // Badge glow
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: badgeX - px(3),
+      y: badgeY - px(3),
+      w: badgeW + px(6),
+      h: badgeH + px(6),
+      radius: (badgeH + px(6)) / 2,
+      color: 0x4d3d00 // goldGlow
+    }))
+
+    // Badge background
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: badgeX,
+      y: badgeY,
+      w: badgeW,
+      h: badgeH,
+      radius: badgeH / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Crown with count
+    staticWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: badgeX,
+      y: badgeY + px(4),
+      w: badgeW,
+      h: px(18),
+      text: `👑x${releasedCount}`,
+      text_size: px(12),
+      color: COLORS.gold,
       align_h: hmUI.align.CENTER_H
     }))
   },
@@ -508,6 +597,9 @@ Page({
   drawFeedSection(dominant) {
     const feedY = px(395)
 
+    // Check if creature is at Transcendent stage (can be released)
+    const canBeReleased = canRelease(creature)
+
     if (canFeed) {
       // Feed button with glow - enough PAI earned since last feed
       const btnW = px(160)
@@ -536,16 +628,54 @@ Page({
         color: color
       }))
 
-      // Button
+      // Button - cap display value to prevent text overflow
+      const displayValue = pendingLifeForce > 99 ? '99+' : pendingLifeForce
       staticWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
         x: btnX, y: feedY, w: btnW, h: btnH,
         radius: btnH / 2,
         normal_color: COLORS.success,
         press_color: COLORS.successDark,
-        text: `Feed +${pendingLifeForce}`,
+        text: `Feed +${displayValue}`,
         text_size: px(18),
         color: COLORS.textPrimary,
         click_func: () => this.onFeed()
+      }))
+    } else if (canBeReleased) {
+      // Show release button for Transcendent creatures
+      const btnW = px(180)
+      const btnH = px(44)
+      const btnX = CX - btnW / 2
+
+      // Gold glow for release button
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: btnX - px(6),
+        y: feedY - px(6),
+        w: btnW + px(12),
+        h: btnH + px(12),
+        radius: (btnH + px(12)) / 2,
+        color: 0x4d3d00 // goldGlow
+      }))
+
+      // Gold border
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: btnX - px(2),
+        y: feedY - px(2),
+        w: btnW + px(4),
+        h: btnH + px(4),
+        radius: (btnH + px(4)) / 2,
+        color: COLORS.gold
+      }))
+
+      // Release button
+      staticWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+        x: btnX, y: feedY, w: btnW, h: btnH,
+        radius: btnH / 2,
+        normal_color: 0x806B00, // goldDark
+        press_color: 0x4d3d00,  // goldGlow
+        text: '✨ Ascend',
+        text_size: px(18),
+        color: COLORS.textPrimary,
+        click_func: () => this.onRelease()
       }))
     } else if (pendingLifeForce > 0) {
       // Partial progress - show how much more PAI needed
@@ -655,9 +785,15 @@ Page({
   },
 
   scheduleNextBlink() {
+    // Don't schedule if page is being destroyed
+    if (pageDestroyed) return
+
     const delay = 3000 + Math.random() * 2000 // 3-5 seconds
     blinkTimer = setTimeout(() => {
-      if (!isAnimating) {
+      // Double-check page isn't destroyed before executing
+      if (pageDestroyed) return
+
+      if (!isAnimating && creature) {
         this.triggerBlink()
       }
       this.scheduleNextBlink()
@@ -906,23 +1042,14 @@ Page({
 
     // Check if will evolve after adding XP
     const streakMultiplier = getStreakBonus(creature.currentStreak)
-    const xpWithBonus = Math.round(pendingLifeForce * streakMultiplier)
-    const evoReqs = checkEvolutionRequirements(creature)
-    const threshold = EVOLUTION_THRESHOLDS[creature.stage]
-    // Will evolve if: days requirement met AND XP after feed meets threshold
-    const willEvolve = evoReqs.daysMet && threshold &&
-                       (creature.currentStageXP + xpWithBonus) >= threshold &&
-                       creature.stage < 6
-    const oldStage = creature.stage
-
     // Start feed animation
     this.startFeedAnimation(() => {
-      // Apply feed changes
-      this.applyFeedChanges()
+      // Apply feed changes and get evolution result
+      const result = this.applyFeedChanges()
 
-      if (willEvolve) {
-        // Play evolution animation
-        this.startEvolutionAnimation(oldStage, creature.stage, () => {
+      if (result.evolved) {
+        // Play evolution animation with correct old/new stages
+        this.startEvolutionAnimation(result.oldStage, result.newStage, () => {
           this.rebuildUI()
           this.startIdleAnimation()
         })
@@ -934,15 +1061,21 @@ Page({
   },
 
   applyFeedChanges() {
+    const result = { evolved: false, oldStage: 0, newStage: 0 }
     try {
       const app = getApp()
       const today = getDateString()
       const isNewDay = !isSameDate(creature.lastFedDate, today)
 
+      // Capture old stage BEFORE any changes
+      result.oldStage = creature.stage
+
       // XP always stacks (multiple feeds per day add XP)
-      // Apply streak bonus to XP
+      // Apply legacy bonus first, then streak bonus
+      const legacyMultiplier = getLegacyMultiplier()
+      const xpWithLegacy = Math.round(pendingLifeForce * legacyMultiplier)
       const streakMultiplier = getStreakBonus(creature.currentStreak)
-      const xpWithBonus = Math.round(pendingLifeForce * streakMultiplier)
+      const xpWithBonus = Math.round(xpWithLegacy * streakMultiplier)
       creature.totalXP += xpWithBonus
       creature.currentStageXP += xpWithBonus
       creature.mood = Math.min(100, creature.mood + 25)
@@ -953,11 +1086,18 @@ Page({
         creature.totalDaysFed++
 
         // Update streak: check if yesterday was fed
-        if (creature.lastFedDate === null || isYesterday(creature.lastFedDate, today)) {
+        // Ensure streak values are valid numbers
+        creature.currentStreak = creature.currentStreak || 0
+        creature.longestStreak = creature.longestStreak || 0
+
+        const isFirstFeedEver = creature.lastFedDate === null || creature.lastFedDate === undefined
+        const fedYesterday = !isFirstFeedEver && isYesterday(creature.lastFedDate, today)
+
+        if (isFirstFeedEver || fedYesterday) {
           // First feed ever or fed yesterday - continue/start streak
-          creature.currentStreak++
+          creature.currentStreak = creature.currentStreak + 1
         } else {
-          // Missed one or more days - reset streak
+          // Missed one or more days - reset streak to 1 (today counts)
           creature.currentStreak = 1
         }
 
@@ -1002,7 +1142,13 @@ Page({
       // Streak bonus for consistency
       if (streak >= 7) enduranceBoost = Math.min(3, enduranceBoost + 1)
 
-      // Apply boosts (no penalties)
+      // Ensure affinities object and values are valid
+      creature.affinities = creature.affinities || { speed: 0, power: 0, endurance: 0 }
+      creature.affinities.speed = Math.max(0, Math.min(100, creature.affinities.speed || 0))
+      creature.affinities.power = Math.max(0, Math.min(100, creature.affinities.power || 0))
+      creature.affinities.endurance = Math.max(0, Math.min(100, creature.affinities.endurance || 0))
+
+      // Apply boosts (no penalties, capped at 100)
       if (speedBoost > 0) creature.affinities.speed = Math.min(100, creature.affinities.speed + speedBoost)
       if (powerBoost > 0) creature.affinities.power = Math.min(100, creature.affinities.power + powerBoost)
       if (enduranceBoost > 0) creature.affinities.endurance = Math.min(100, creature.affinities.endurance + enduranceBoost)
@@ -1011,6 +1157,10 @@ Page({
       if (canEvolve(creature)) {
         // evolve() handles history, stage increment, excess XP carry-over, and stageStartDate reset
         evolve(creature)
+        result.evolved = true
+        result.newStage = creature.stage
+      } else {
+        result.newStage = creature.stage
       }
 
       // Check for new trait unlocks
@@ -1029,13 +1179,197 @@ Page({
       // Reset feed state
       pendingLifeForce = 0
       canFeed = false
-    } catch (e) {}
+    } catch (e) {
+      result.newStage = creature ? creature.stage : 0
+    }
+    return result
   },
 
   rebuildUI() {
     this.cleanup()
     this.buildStaticUI()
     this.buildBlob()
+    // Re-show release confirmation if it was open
+    if (showReleaseConfirm) {
+      this.drawReleaseConfirm()
+    }
+  },
+
+  // ==================== RELEASE LOGIC ====================
+
+  onRelease() {
+    if (!canRelease(creature) || isAnimating) return
+    showReleaseConfirm = true
+    releaseName = creature.name || 'Blobby'
+    this.drawReleaseConfirm()
+  },
+
+  drawReleaseConfirm() {
+    // Clear any existing release widgets
+    releaseWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
+    releaseWidgets = []
+
+    // Semi-transparent overlay
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: 0, y: 0, w: W, h: H,
+      color: 0x000000
+    }))
+
+    // Modal card
+    const modalW = px(300)
+    const modalH = px(280)
+    const modalX = CX - modalW / 2
+    const modalY = CX - modalH / 2
+
+    // Card glow
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: modalX - px(6),
+      y: modalY - px(6),
+      w: modalW + px(12),
+      h: modalH + px(12),
+      radius: px(20),
+      color: 0x4d3d00 // goldGlow
+    }))
+
+    // Card background
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: modalX,
+      y: modalY,
+      w: modalW,
+      h: modalH,
+      radius: px(16),
+      color: COLORS.bgCard
+    }))
+
+    // Crown icon
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: modalX,
+      y: modalY + px(20),
+      w: modalW,
+      h: px(40),
+      text: '👑',
+      text_size: px(32),
+      color: COLORS.gold,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Title
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: modalX,
+      y: modalY + px(65),
+      w: modalW,
+      h: px(26),
+      text: 'Ascend to Collection?',
+      text_size: px(18),
+      color: COLORS.textPrimary,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Creature name display
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: modalX + px(20),
+      y: modalY + px(100),
+      w: modalW - px(40),
+      h: px(30),
+      text: `"${releaseName}"`,
+      text_size: px(16),
+      color: COLORS.gold,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Legacy bonus info
+    const currentBonus = getLegacyBonus()
+    const newBonus = Math.min(25, currentBonus + 5)
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: modalX,
+      y: modalY + px(135),
+      w: modalW,
+      h: px(22),
+      text: currentBonus < 25 ? `Legacy: +${currentBonus}% → +${newBonus}%` : 'Legacy: +25% (Max)',
+      text_size: px(14),
+      color: COLORS.textSecondary,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Info text
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: modalX + px(15),
+      y: modalY + px(160),
+      w: modalW - px(30),
+      h: px(36),
+      text: 'Start fresh with bonus XP',
+      text_size: px(13),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Buttons
+    const btnW = px(110)
+    const btnH = px(40)
+    const btnY = modalY + modalH - px(60)
+    const btnGap = px(20)
+
+    // Cancel button
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+      x: modalX + modalW / 2 - btnW - btnGap / 2,
+      y: btnY,
+      w: btnW,
+      h: btnH,
+      radius: btnH / 2,
+      normal_color: COLORS.bgBar,
+      press_color: COLORS.bgCardLight,
+      text: 'Cancel',
+      text_size: px(16),
+      color: COLORS.textSecondary,
+      click_func: () => this.onReleaseCancel()
+    }))
+
+    // Confirm button
+    releaseWidgets.push(hmUI.createWidget(hmUI.widget.BUTTON, {
+      x: modalX + modalW / 2 + btnGap / 2,
+      y: btnY,
+      w: btnW,
+      h: btnH,
+      radius: btnH / 2,
+      normal_color: COLORS.gold,
+      press_color: 0x806B00,
+      text: 'Ascend',
+      text_size: px(16),
+      color: COLORS.bgDark,
+      click_func: () => this.onReleaseConfirm()
+    }))
+  },
+
+  onReleaseConfirm() {
+    if (!canRelease(creature)) return
+
+    const result = releaseCreature(creature, releaseName)
+    if (result.success) {
+      // Create new creature
+      const app = getApp()
+      creature = createDefaultCreature()
+      app.globalData.creature = creature
+      if (app.setCreature) app.setCreature(creature)
+
+      // Clean up release UI
+      showReleaseConfirm = false
+      releaseWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
+      releaseWidgets = []
+
+      // Reset feed state
+      pendingLifeForce = 0
+      canFeed = false
+
+      // Rebuild UI with new creature
+      this.rebuildUI()
+      this.startIdleAnimation()
+    }
+  },
+
+  onReleaseCancel() {
+    showReleaseConfirm = false
+    releaseWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
+    releaseWidgets = []
   },
 
   cleanup() {
@@ -1047,5 +1381,7 @@ Page({
     progressWidgets = []
     staticWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
     staticWidgets = []
+    releaseWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
+    releaseWidgets = []
   }
 })
