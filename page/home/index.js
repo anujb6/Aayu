@@ -746,9 +746,154 @@ Page({
     const baseSize = px(BASE_BLOB_SIZE)
     const blobX = CX + xOffset
     const blobY = BLOB_Y + yOffset
+    const currentSize = Math.round(baseSize * scale)
 
-    // Use the shapes module for affinity-based blob with traits
-    blobWidgets = createCompleteBlob(creature, blobX, blobY, Math.round(baseSize * scale), px, frame)
+    // Electron-like orbiting particles with TRUE 3D z-ordering
+    // Particles go BEHIND creature on back half of orbit, IN FRONT on front half
+    const particleCount = creature.stage >= 1 ? Math.min(4, creature.stage) : 0
+    const time = Date.now()
+    const centerX = CX
+    const centerY = BLOB_Y
+    const orbitRadius = baseSize * 0.7
+
+    // Collect particles that go BEHIND the creature (back of orbit: angles 0-180)
+    const backParticles = []
+    // Collect particles that go IN FRONT (front of orbit: angles 180-360)
+    const frontParticles = []
+
+    for (let i = 0; i < particleCount; i++) {
+      const orbitSpeed = 1.5 + i * 0.3
+      const orbitTilt = 0.6 + i * 0.1  // More elliptical (taller orbit)
+      const angleOffset = i * (360 / particleCount)
+      const angle = ((time * orbitSpeed * 0.36) + angleOffset) % 360
+      const radians = angle * Math.PI / 180
+
+      const particleX = centerX + Math.cos(radians) * orbitRadius
+      const particleY = centerY + Math.sin(radians) * orbitRadius * orbitTilt
+      const particleSize = px(5)
+      const particleColor = 0x4ECDC4
+
+      // Determine if particle is on back (0-180) or front (180-360) of orbit
+      const isBack = angle >= 0 && angle < 180
+      const targetArray = isBack ? backParticles : frontParticles
+
+      // Main particle
+      targetArray.push({ x: particleX, y: particleY, size: particleSize, color: particleColor })
+
+      // Trail particles
+      for (let t = 1; t <= 2; t++) {
+        const trailAngle = ((time * orbitSpeed * 0.36) + angleOffset - t * 15) % 360
+        const trailRad = trailAngle * Math.PI / 180
+        const trailX = centerX + Math.cos(trailRad) * orbitRadius
+        const trailY = centerY + Math.sin(trailRad) * orbitRadius * orbitTilt
+        const trailSize = px(5 - t * 1.5)
+        const trailColor = t === 1 ? 0x3BA89F : 0x2A7A72
+
+        const trailIsBack = trailAngle >= 0 && trailAngle < 180
+        const trailTarget = trailIsBack ? backParticles : frontParticles
+        trailTarget.push({ x: trailX, y: trailY, size: trailSize, color: trailColor })
+      }
+    }
+
+    // Draw BACK particles first (behind creature)
+    for (const p of backParticles) {
+      blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: p.x - p.size / 2, y: p.y - p.size / 2,
+        w: p.size, h: p.size, radius: p.size / 2, color: p.color
+      }))
+    }
+
+    // Draw creature in the middle
+    blobWidgets.push(...createCompleteBlob(creature, blobX, blobY, currentSize, px, frame))
+
+    // Draw FRONT particles last (in front of creature)
+    for (const p of frontParticles) {
+      blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: p.x - p.size / 2, y: p.y - p.size / 2,
+        w: p.size, h: p.size, radius: p.size / 2, color: p.color
+      }))
+    }
+
+    // Egg cracks for stage 1 - spider web pattern radiating from impact point
+    if (creature.stage === 1) {
+      const threshold = 50  // XP needed to evolve from egg
+      const progress = Math.min(100, Math.round((creature.currentStageXP / threshold) * 100))
+      const crackColor = 0x2a2a35  // Subtle dark crack color
+      const lineW = px(2)  // Thin crack lines
+
+      // Impact point near top-right of egg
+      const impactX = blobX + px(8)
+      const impactY = blobY - currentSize * 0.2
+
+      if (progress >= 20) {
+        // Stage 1: Initial hairline crack - small star from impact
+        // Center dot
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(2), y: impactY - px(2),
+          w: px(4), h: px(4), radius: px(2), color: crackColor
+        }))
+        // Line going up-right
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX, y: impactY - px(8),
+          w: lineW, h: px(8), radius: px(1), color: crackColor
+        }))
+        // Line going down-right
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX + px(2), y: impactY,
+          w: px(6), h: lineW, radius: px(1), color: crackColor
+        }))
+      }
+
+      if (progress >= 40) {
+        // Stage 2: Cracks spread - more branches
+        // Branch going down-left from impact
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(10), y: impactY + px(2),
+          w: px(12), h: lineW, radius: px(1), color: crackColor
+        }))
+        // Small branch off that line
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(6), y: impactY + px(2),
+          w: lineW, h: px(6), radius: px(1), color: crackColor
+        }))
+      }
+
+      if (progress >= 60) {
+        // Stage 3: More spreading - secondary impact area
+        // New crack cluster on left side
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: blobX - px(12), y: blobY - px(5),
+          w: px(8), h: lineW, radius: px(1), color: crackColor
+        }))
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: blobX - px(8), y: blobY - px(5),
+          w: lineW, h: px(10), radius: px(1), color: crackColor
+        }))
+        // Connect to main crack
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: blobX - px(5), y: impactY + px(4),
+          w: px(13), h: lineW, radius: px(1), color: crackColor
+        }))
+      }
+
+      if (progress >= 80) {
+        // Stage 4: About to hatch - major fracture with light
+        // Large crack at top
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(4), y: impactY - px(12),
+          w: lineW, h: px(6), radius: px(1), color: crackColor
+        }))
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(8), y: impactY - px(10),
+          w: px(10), h: lineW, radius: px(1), color: crackColor
+        }))
+        // Glow/light peeking through at impact point
+        blobWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: impactX - px(3), y: impactY - px(3),
+          w: px(6), h: px(6), radius: px(3), color: 0xFFF8DC  // Warm light
+        }))
+      }
+    }
   },
 
   // ==================== ANIMATIONS ====================
