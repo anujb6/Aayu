@@ -14,10 +14,12 @@
   },
   "permissions": [
     "device:os.local_storage",
+    "device:os.alarm",
     "data:user.hd.heart_rate",
     "data:user.hd.step",
     "data:user.hd.distance",
-    "data:user.hd.calorie"
+    "data:user.hd.calorie",
+    "data:user.hd.pai"
   ],
   "runtime": {
     "apiVersion": {
@@ -35,11 +37,9 @@
             "page/stats/index",
             "page/evolution/index",
             "page/traits/index",
-            "page/collection/index"
+            "page/collection/index",
+            "page/settings/index"
           ]
-        },
-        "watchface": {
-          "path": "watchface/index"
         }
       },
       "platforms": [

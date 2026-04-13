@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Skill(superpowers:brainstorming)",
+      "WebFetch(domain:docs.zepp.com)",
+      "WebSearch",
+      "Skill(superpowers:brainstorm)",
+      "Bash(dir:*)",
+      "Bash(findstr:*)"
+    ]
+  }
+}

@@ -3,8 +3,10 @@ import { getDeviceInfo } from '@zos/device'
 import { push, back } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
 import { getShapeType, AFFINITY_COLORS } from '../../lib/shapes'
-import { STAGE_NAMES, EVOLUTION_THRESHOLDS, MIN_DAYS_PER_STAGE } from '../../lib/evolution'
+import { STAGE_NAMES, EVOLUTION_THRESHOLDS, MIN_DAYS_PER_STAGE, canEvolve as checkCanEvolve } from '../../lib/evolution'
+import { getDaysInStage } from '../../lib/creature'
 
+// Get device dimensions for responsive design
 let W = 480
 let H = 480
 try {
@@ -13,37 +15,65 @@ try {
   H = info.height || 480
 } catch (e) {}
 
+// Center point and responsive scaling
 const CX = Math.round(W / 2)
+const CY = Math.round(H / 2)
 
+// Responsive pixel function - scales based on 480px baseline
 function px(val) {
   return Math.round(val * W / 480)
 }
 
+// ============================================
+// RPG COLOR PALETTE - Modern Mobile RPG Style
+// ============================================
 const COLORS = {
-  bgDark: 0x000000,
-  bgLight: 0x2a2a3e,
-  bgMedium: 0x1a1a2e,
+  // Backgrounds
+  bgDark: 0x0a0a12,
+  bgCard: 0x14141f,
+  bgCardLight: 0x1e1e2e,
+
+  // Text
+  textGold: 0xFFD700,
+  textSilver: 0xC0C0C0,
+  textBronze: 0xCD7F32,
   textPrimary: 0xFFFFFF,
-  textSecondary: 0xBBBBBB,
-  textMuted: 0x888888,
-  textDark: 0x555555,
-  success: 0x4CAF50,
+  textSecondary: 0xA0A0B0,
+  textMuted: 0x606070,
+
+  // Accents
   gold: 0xFFD700,
-  barBg: 0x2a2a3e
+  goldDark: 0xB8860B,
+  goldGlow: 0x3d3200,
+  silver: 0xC0C0C0,
+  bronze: 0xCD7F32,
+
+  // Status
+  success: 0x4ADE80,
+  successDark: 0x166534,
+  successGlow: 0x14532d,
+
+  // Stage-specific colors
+  stage1: 0x94A3B8,  // Egg - Silver/Gray
+  stage2: 0x60A5FA,  // Juvenile - Blue
+  stage3: 0x4ADE80,  // Adolescent - Green
+  stage4: 0xA78BFA,  // Adult - Purple
+  stage5: 0xF97316,  // Elder - Orange
+  stage6: 0xFFD700,  // Transcendent - Gold
 }
 
-const AFFINITY_NAMES = {
-  speed: 'Speed',
-  power: 'Power',
-  endurance: 'Endurance',
-  balanced: 'Balanced'
-}
+// Stage colors array for easy access
+const STAGE_COLORS = [
+  COLORS.stage1, COLORS.stage2, COLORS.stage3,
+  COLORS.stage4, COLORS.stage5, COLORS.stage6
+]
 
-// Use MIN_DAYS_PER_STAGE from evolution.js
+// Stage icons/symbols
+const STAGE_SYMBOLS = ['◇', '◈', '❖', '✦', '★', '✪']
+
 const MIN_DAYS = MIN_DAYS_PER_STAGE
 
 let widgets = []
-let barWidgets = []
 let creature = null
 
 Page({
@@ -83,353 +113,495 @@ Page({
   },
 
   buildUI() {
+    // Full screen background
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: W, h: H,
       color: COLORS.bgDark
     }))
 
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(50), w: W - px(120), h: px(32),
-      text: 'Evolution',
-      text_size: px(26),
-      color: COLORS.textPrimary,
-      align_h: hmUI.align.CENTER_H
-    }))
-
     if (!creature) {
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(200), w: W - px(120), h: px(30),
-        text: 'No creature data',
-        text_size: px(16),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
+      this.drawNoData()
       return
     }
 
-    // Current stage - color based on dominant affinity
-    const dominantType = getShapeType(creature.affinities || { speed: 0, power: 0, endurance: 0 })
-    const stageColor = AFFINITY_COLORS[dominantType]?.primary || 0x9B59B6
+    // Calculate evolution status
+    const stage = creature.stage || 1
+    const threshold = EVOLUTION_THRESHOLDS[stage] || 999999
+    const minDays = MIN_DAYS[stage] || 999
+    // Calculate daysInStage dynamically from stageStartDate
+    const daysInStage = getDaysInStage(creature)
+    const xpProgress = Math.min(100, Math.round((creature.currentStageXP / threshold) * 100))
+    const daysProgress = Math.min(100, Math.round((daysInStage / minDays) * 100))
+    const xpMet = creature.currentStageXP >= threshold
+    const daysMet = daysInStage >= minDays
+    const canEvolve = checkCanEvolve(creature)
+    const isMaxStage = stage >= 6
 
+    // Get stage color
+    const stageColor = STAGE_COLORS[stage - 1] || COLORS.gold
+    const dominantType = getShapeType(creature.affinities || { speed: 0, power: 0, endurance: 0 })
+    const affinityColor = AFFINITY_COLORS[dominantType]?.primary || stageColor
+
+    // ===== DRAW RPG UI =====
+
+    // 1. Title at top (within safe area)
+    this.drawTitle()
+
+    // 2. Central Shield/Emblem
+    this.drawStageEmblem(stage, stageColor, canEvolve, isMaxStage)
+
+    // 3. Stage name below emblem
+    this.drawStageName(stage, stageColor, isMaxStage)
+
+    // 4. Progress bars (XP and Days)
+    if (!isMaxStage) {
+      this.drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve, daysInStage)
+    } else {
+      this.drawMaxStageInfo(daysInStage)
+    }
+
+    // 5. Stage progression dots at bottom
+    this.drawStageProgression(stage, stageColor)
+  },
+
+  drawNoData() {
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(85), w: W - px(120), h: px(30),
-      text: STAGE_NAMES[creature.stage],
-      text_size: px(22),
-      color: stageColor,
+      x: px(40), y: CY - px(20), w: W - px(80), h: px(40),
+      text: 'No creature data',
+      text_size: px(18),
+      color: COLORS.textMuted,
       align_h: hmUI.align.CENTER_H
     }))
-
-    this.createStageDots(px(120), stageColor)
-    this.createBranchPreview(px(175), dominantType)
-    this.createRequirements(px(240), stageColor)
-    this.createHistorySection(px(380))
-    this.createPageDots(px(435))
   },
 
-  createStageDots(y, stageColor) {
-    const dotSize = px(20)
-    const spacing = px(44)
-    const totalWidth = 6 * dotSize + 5 * (spacing - dotSize)
-    const startX = CX - totalWidth / 2
-
-    // Progress line bg
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: startX + dotSize / 2,
-      y: y + dotSize / 2 - px(2),
-      w: totalWidth - dotSize,
-      h: px(4),
-      radius: px(2),
-      color: COLORS.bgLight
-    }))
-
-    // Progress line fill
-    const progressW = Math.max(0, (creature.stage - 1) * spacing)
-    if (progressW > 0) {
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: startX + dotSize / 2,
-        y: y + dotSize / 2 - px(2),
-        w: progressW,
-        h: px(4),
-        radius: px(2),
-        color: stageColor
-      }))
-    }
-
-    for (let i = 1; i <= 6; i++) {
-      const dotX = startX + (i - 1) * spacing
-      const isComplete = i <= creature.stage
-      const isCurrent = i === creature.stage
-
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: dotX, y: y,
-        w: dotSize, h: dotSize,
-        radius: dotSize / 2,
-        color: isComplete ? stageColor : COLORS.bgLight
-      }))
-
-      if (isCurrent) {
-        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-          x: dotX + px(5), y: y + px(5),
-          w: dotSize - px(10), h: dotSize - px(10),
-          radius: (dotSize - px(10)) / 2,
-          color: COLORS.textPrimary
-        }))
-      }
-
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: dotX - px(5), y: y + dotSize + px(3),
-        w: dotSize + px(10), h: px(12),
-        text: `${i}`,
-        text_size: px(10),
-        color: isComplete ? COLORS.textSecondary : COLORS.textDark,
-        align_h: hmUI.align.CENTER_H
-      }))
-    }
-  },
-
-  createBranchPreview(y, dominantType) {
-    const affinityColor = AFFINITY_COLORS[dominantType]?.primary || 0xCCCCCC
-    const affinityName = AFFINITY_NAMES[dominantType] || 'Balanced'
-
-    // Background box
-    const boxW = px(200)
-    const boxH = px(50)
-    const boxX = CX - boxW / 2
-
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: boxX, y: y,
-      w: boxW, h: boxH,
-      radius: px(8),
-      color: COLORS.bgMedium
-    }))
-
-    // Mini blob indicator
-    const blobSize = px(30)
-    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: boxX + px(12), y: y + (boxH - blobSize) / 2,
-      w: blobSize, h: blobSize,
-      radius: blobSize / 2,
-      color: affinityColor
-    }))
-
-    // Affinity type label
+  drawTitle() {
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: boxX + px(50), y: y + px(8),
-      w: boxW - px(60), h: px(18),
-      text: `${affinityName} Type`,
-      text_size: px(15),
-      color: affinityColor,
-      align_h: hmUI.align.LEFT
-    }))
-
-    // Evolving as text
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: boxX + px(50), y: y + px(28),
-      w: boxW - px(60), h: px(16),
-      text: 'evolving as',
-      text_size: px(12),
-      color: COLORS.textMuted,
-      align_h: hmUI.align.LEFT
-    }))
-  },
-
-  createRequirements(startY, stageColor) {
-    if (creature.stage >= 6) {
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: startY, w: W - px(120), h: px(26),
-        text: 'Max Evolution!',
-        text_size: px(20),
-        color: COLORS.gold,
-        align_h: hmUI.align.CENTER_H
-      }))
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: startY + px(30), w: W - px(120), h: px(20),
-        text: 'Transcendent achieved',
-        text_size: px(14),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: startY + px(55), w: W - px(120), h: px(20),
-        text: `Total XP: ${creature.totalXP}`,
-        text_size: px(15),
-        color: COLORS.textSecondary,
-        align_h: hmUI.align.CENTER_H
-      }))
-      return
-    }
-
-    const threshold = EVOLUTION_THRESHOLDS[creature.stage]
-    const minDays = MIN_DAYS[creature.stage]
-    const xpProgress = Math.min(100, Math.round((creature.currentStageXP / threshold) * 100))
-    const xpMet = creature.currentStageXP >= threshold
-    const daysMet = creature.daysInStage >= minDays
-
-    const nextStage = STAGE_NAMES[creature.stage + 1]
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: startY, w: W - px(120), h: px(22),
-      text: `Next: ${nextStage}`,
-      text_size: px(16),
+      x: 0, y: px(28), w: W, h: px(28),
+      text: 'EVOLUTION',
+      text_size: px(18),
       color: COLORS.textSecondary,
       align_h: hmUI.align.CENTER_H
     }))
+  },
 
-    // Compact bar dimensions
-    const barW = px(260)
-    const barX = CX - barW / 2
-    const labelX = barX
-    const valueX = barX + barW - px(90)
+  drawStageEmblem(stage, stageColor, canEvolve, isMaxStage) {
+    const emblemSize = px(140)
+    const emblemX = CX - emblemSize / 2
+    const emblemY = px(70)
 
-    // XP requirement
-    const xpY = startY + px(28)
+    // Outer glow ring (largest)
+    const glowColor = isMaxStage ? COLORS.goldGlow : this.getDimColor(stageColor)
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX - px(12),
+      y: emblemY - px(12),
+      w: emblemSize + px(24),
+      h: emblemSize + px(24),
+      radius: (emblemSize + px(24)) / 2,
+      color: glowColor
+    }))
+
+    // Middle glow ring
+    const midGlowColor = canEvolve ? COLORS.successGlow : glowColor
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX - px(6),
+      y: emblemY - px(6),
+      w: emblemSize + px(12),
+      h: emblemSize + px(12),
+      radius: (emblemSize + px(12)) / 2,
+      color: midGlowColor
+    }))
+
+    // Bright border ring
+    const borderColor = canEvolve ? COLORS.success : (isMaxStage ? COLORS.gold : stageColor)
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX - px(3),
+      y: emblemY - px(3),
+      w: emblemSize + px(6),
+      h: emblemSize + px(6),
+      radius: (emblemSize + px(6)) / 2,
+      color: borderColor
+    }))
+
+    // Inner dark background
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX,
+      y: emblemY,
+      w: emblemSize,
+      h: emblemSize,
+      radius: emblemSize / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Inner decorative ring
+    const innerRingSize = emblemSize - px(20)
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX + px(10),
+      y: emblemY + px(10),
+      w: innerRingSize,
+      h: innerRingSize,
+      radius: innerRingSize / 2,
+      color: this.getDimColor(borderColor)
+    }))
+
+    // Center circle
+    const centerSize = innerRingSize - px(8)
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: emblemX + px(14),
+      y: emblemY + px(14),
+      w: centerSize,
+      h: centerSize,
+      radius: centerSize / 2,
+      color: COLORS.bgCardLight
+    }))
+
+    // Stage number - large centered
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: labelX, y: xpY, w: px(50), h: px(18),
-      text: 'XP',
-      text_size: px(14),
+      x: emblemX,
+      y: emblemY + px(35),
+      w: emblemSize,
+      h: px(55),
+      text: `${stage}`,
+      text_size: px(52),
+      color: borderColor,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Stage symbol below number
+    const symbol = STAGE_SYMBOLS[stage - 1] || '◇'
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: emblemX,
+      y: emblemY + px(90),
+      w: emblemSize,
+      h: px(30),
+      text: symbol,
+      text_size: px(22),
+      color: borderColor,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // "READY" banner if can evolve
+    if (canEvolve) {
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: CX - px(45),
+        y: emblemY + emblemSize - px(8),
+        w: px(90),
+        h: px(22),
+        radius: px(11),
+        color: COLORS.success
+      }))
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: CX - px(45),
+        y: emblemY + emblemSize - px(6),
+        w: px(90),
+        h: px(20),
+        text: 'READY',
+        text_size: px(12),
+        color: COLORS.bgDark,
+        align_h: hmUI.align.CENTER_H
+      }))
+    }
+
+    // Crown for max stage
+    if (isMaxStage) {
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: CX - px(20),
+        y: emblemY - px(28),
+        w: px(40),
+        h: px(28),
+        text: '👑',
+        text_size: px(22),
+        color: COLORS.gold,
+        align_h: hmUI.align.CENTER_H
+      }))
+    }
+  },
+
+  drawStageName(stage, stageColor, isMaxStage) {
+    const nameY = px(230)
+    const stageName = STAGE_NAMES[stage] || 'Unknown'
+
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: nameY, w: W, h: px(28),
+      text: stageName.toUpperCase(),
+      text_size: px(20),
+      color: isMaxStage ? COLORS.gold : stageColor,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Subtitle
+    const subtitle = isMaxStage ? 'Maximum Evolution' : `Stage ${stage} of 6`
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: nameY + px(26), w: W, h: px(20),
+      text: subtitle,
+      text_size: px(13),
       color: COLORS.textMuted,
-      align_h: hmUI.align.LEFT
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: valueX, y: xpY, w: px(90), h: px(18),
-      text: `${creature.currentStageXP}/${threshold}`,
-      text_size: px(14),
-      color: xpMet ? COLORS.success : COLORS.textSecondary,
-      align_h: hmUI.align.RIGHT
-    }))
-
-    this.createProgressBar(barX, xpY + px(18), barW, px(10), xpProgress, xpMet ? COLORS.success : stageColor)
-
-    // Days requirement
-    const daysY = xpY + px(40)
-    const daysProgress = Math.min(100, Math.round((creature.daysInStage / minDays) * 100))
-
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: labelX, y: daysY, w: px(50), h: px(18),
-      text: 'Days',
-      text_size: px(14),
-      color: COLORS.textMuted,
-      align_h: hmUI.align.LEFT
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: valueX, y: daysY, w: px(90), h: px(18),
-      text: `${creature.daysInStage}/${minDays}`,
-      text_size: px(14),
-      color: daysMet ? COLORS.success : COLORS.textSecondary,
-      align_h: hmUI.align.RIGHT
-    }))
-
-    this.createProgressBar(barX, daysY + px(18), barW, px(10), daysProgress, daysMet ? COLORS.success : stageColor)
-
-    // Status
-    const statusY = daysY + px(38)
-    const canEvolve = xpMet && daysMet
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: statusY, w: W - px(120), h: px(22),
-      text: canEvolve ? 'Ready to evolve!' : 'Keep training...',
-      text_size: px(15),
-      color: canEvolve ? COLORS.success : COLORS.textMuted,
       align_h: hmUI.align.CENTER_H
     }))
   },
 
-  createProgressBar(x, y, width, height, progress, color) {
-    barWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: x, y: y, w: width, h: height,
-      radius: height / 2,
-      color: COLORS.barBg
-    }))
+  drawProgressSection(xpProgress, daysProgress, xpMet, daysMet, stageColor, canEvolve, daysInStage) {
+    const sectionY = px(290)
+    const barWidth = W - px(100)
+    const barX = px(50)
+    const barHeight = px(14)
 
-    const fillWidth = Math.max(height, Math.round((width - px(4)) * Math.min(100, progress) / 100))
-    if (progress > 0) {
-      barWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: x + px(2), y: y + px(2),
-        w: fillWidth, h: height - px(4),
-        radius: (height - px(4)) / 2,
-        color: color
+    // XP Progress
+    this.drawProgressBar(
+      barX, sectionY,
+      barWidth, barHeight,
+      xpProgress,
+      xpMet ? COLORS.success : stageColor,
+      xpMet,
+      'XP',
+      `${creature.currentStageXP}/${EVOLUTION_THRESHOLDS[creature.stage]}`
+    )
+
+    // Days Progress
+    this.drawProgressBar(
+      barX, sectionY + px(50),
+      barWidth, barHeight,
+      daysProgress,
+      daysMet ? COLORS.success : stageColor,
+      daysMet,
+      'DAYS',
+      `${daysInStage}/${MIN_DAYS[creature.stage]}`
+    )
+
+    // Status text
+    const statusY = sectionY + px(100)
+    if (canEvolve) {
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: 0, y: statusY, w: W, h: px(20),
+        text: '▲ Ready to evolve! ▲',
+        text_size: px(14),
+        color: COLORS.success,
+        align_h: hmUI.align.CENTER_H
+      }))
+    } else {
+      const remaining = []
+      if (!xpMet) remaining.push(`${EVOLUTION_THRESHOLDS[creature.stage] - creature.currentStageXP} XP`)
+      if (!daysMet) remaining.push(`${MIN_DAYS[creature.stage] - daysInStage} days`)
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: 0, y: statusY, w: W, h: px(20),
+        text: `Need: ${remaining.join(', ')}`,
+        text_size: px(12),
+        color: COLORS.textMuted,
+        align_h: hmUI.align.CENTER_H
       }))
     }
   },
 
-  createHistorySection(y) {
-    const history = creature.evolutionHistory || []
-    if (history.length === 0 && creature.stage <= 1) return
-
+  drawProgressBar(x, y, width, height, progress, color, isComplete, label, valueText) {
+    // Label on left
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(70), y: y, w: W - px(140), h: px(18),
-      text: 'History',
-      text_size: px(13),
-      color: COLORS.textMuted,
+      x: x, y: y - px(18), w: px(50), h: px(16),
+      text: label,
+      text_size: px(11),
+      color: isComplete ? COLORS.success : COLORS.textMuted,
       align_h: hmUI.align.LEFT
     }))
 
-    const listY = y + px(20)
-    const listH = px(38) // Height for scrollable area
-    const itemH = px(22)
-    const listW = W - px(100)
-    const listX = px(50)
-
-    // Reverse history to show most recent first
-    const reversedHistory = [...history].reverse()
-
-    // Create scrollable list for history
-    widgets.push(hmUI.createWidget(hmUI.widget.SCROLL_LIST, {
-      x: listX,
-      y: listY,
-      w: listW,
-      h: listH,
-      item_space: px(2),
-      item_config: [{
-        type_id: 1,
-        item_height: itemH,
-        item_bg_color: COLORS.bgMedium,
-        item_bg_radius: px(4),
-        text_view: [{
-          x: px(24),
-          y: px(2),
-          w: listW - px(30),
-          h: itemH - px(4),
-          key: 'text',
-          color: COLORS.textSecondary,
-          text_size: px(13)
-        }],
-        text_view_count: 1
-      }],
-      item_config_count: 1,
-      data_array: reversedHistory.map(entry => {
-        const parts = entry.split('_')
-        const affinity = parts[0] || 'balanced'
-        const stage = parseInt(parts[1], 10) || 1
-        const stageName = STAGE_NAMES[stage] || `Stage ${stage}`
-        const affinityName = AFFINITY_NAMES[affinity] || 'Balanced'
-        return {
-          type: 1,
-          text: `${stageName}: ${affinityName}`
-        }
-      }),
-      data_count: reversedHistory.length,
-      item_click_func: () => {}
+    // Value on right
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x + width - px(80), y: y - px(18), w: px(80), h: px(16),
+      text: valueText,
+      text_size: px(11),
+      color: isComplete ? COLORS.success : COLORS.textSecondary,
+      align_h: hmUI.align.RIGHT
     }))
-  },
 
-  createPageDots(y) {
-    const dotSize = px(6)
-    const dotSpacing = px(14)
-    const totalW = 5 * dotSize + 4 * (dotSpacing - dotSize)
-    const startX = CX - totalW / 2
-
-    for (let i = 0; i < 5; i++) {
-      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: startX + i * dotSpacing, y: y,
-        w: dotSize, h: dotSize,
-        radius: dotSize / 2,
-        color: i === 2 ? COLORS.textPrimary : COLORS.textDark
+    // Completion indicator
+    if (isComplete) {
+      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+        x: x + px(30), y: y - px(18), w: px(20), h: px(16),
+        text: '✓',
+        text_size: px(11),
+        color: COLORS.success,
+        align_h: hmUI.align.LEFT
       }))
+    }
+
+    // Bar background
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: x, y: y, w: width, h: height,
+      radius: height / 2,
+      color: COLORS.bgCardLight
+    }))
+
+    // Bar fill - only show if progress is meaningful (>2%)
+    // Minimum width is height/2 to show a small dot, not a full circle
+    if (progress > 2) {
+      const calculatedWidth = Math.round(width * progress / 100)
+      const fillWidth = Math.max(height / 2, calculatedWidth)
+
+      // Glow under bar when complete
+      if (isComplete) {
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: x - px(2), y: y - px(2),
+          w: fillWidth + px(4), h: height + px(4),
+          radius: (height + px(4)) / 2,
+          color: this.getDimColor(color)
+        }))
+      }
+
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: x, y: y, w: fillWidth, h: height,
+        radius: height / 2,
+        color: color
+      }))
+
+      // Shine effect
+      if (progress > 10) {
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: x + px(4), y: y + px(2),
+          w: Math.max(px(10), fillWidth - px(8)), h: px(3),
+          radius: px(1),
+          color: COLORS.textPrimary
+        }))
+      }
     }
   },
 
+  drawMaxStageInfo(daysInStage) {
+    const infoY = px(290)
+
+    // Stats display
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: infoY, w: W, h: px(20),
+      text: '✦ TRANSCENDENT ✦',
+      text_size: px(14),
+      color: COLORS.gold,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Total XP
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: infoY + px(30), w: W / 2, h: px(18),
+      text: `${creature.totalXP}`,
+      text_size: px(16),
+      color: COLORS.textPrimary,
+      align_h: hmUI.align.CENTER_H
+    }))
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: infoY + px(48), w: W / 2, h: px(14),
+      text: 'Total XP',
+      text_size: px(10),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Days
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: W / 2, y: infoY + px(30), w: W / 2, h: px(18),
+      text: `${daysInStage}+`,
+      text_size: px(16),
+      color: COLORS.textPrimary,
+      align_h: hmUI.align.CENTER_H
+    }))
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: W / 2, y: infoY + px(48), w: W / 2, h: px(14),
+      text: 'Days',
+      text_size: px(10),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
+  },
+
+  drawStageProgression(currentStage, stageColor) {
+    const progressY = px(420)
+    const dotSize = px(16)
+    const dotSpacing = px(42)
+    const totalWidth = 5 * dotSpacing + dotSize
+    const startX = CX - totalWidth / 2
+
+    for (let i = 1; i <= 6; i++) {
+      const dotX = startX + (i - 1) * dotSpacing
+      const isComplete = i < currentStage
+      const isCurrent = i === currentStage
+      const dotColor = STAGE_COLORS[i - 1]
+
+      if (isCurrent) {
+        // Current stage - larger with glow
+        const currentSize = px(22)
+        const offset = (currentSize - dotSize) / 2
+
+        // Glow
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX - offset - px(3),
+          y: progressY - offset - px(3),
+          w: currentSize + px(6),
+          h: currentSize + px(6),
+          radius: (currentSize + px(6)) / 2,
+          color: this.getDimColor(stageColor)
+        }))
+
+        // Dot
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX - offset,
+          y: progressY - offset,
+          w: currentSize,
+          h: currentSize,
+          radius: currentSize / 2,
+          color: stageColor
+        }))
+
+        // Inner highlight
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX - offset + px(4),
+          y: progressY - offset + px(4),
+          w: currentSize - px(8),
+          h: currentSize - px(8),
+          radius: (currentSize - px(8)) / 2,
+          color: COLORS.textPrimary
+        }))
+      } else if (isComplete) {
+        // Completed - filled
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX, y: progressY,
+          w: dotSize, h: dotSize,
+          radius: dotSize / 2,
+          color: dotColor
+        }))
+      } else {
+        // Future - hollow
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX, y: progressY,
+          w: dotSize, h: dotSize,
+          radius: dotSize / 2,
+          color: COLORS.bgCardLight
+        }))
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX + px(3), y: progressY + px(3),
+          w: dotSize - px(6), h: dotSize - px(6),
+          radius: (dotSize - px(6)) / 2,
+          color: COLORS.bgDark
+        }))
+      }
+
+      // Connection line to next dot (except last)
+      if (i < 6) {
+        const lineColor = i < currentStage ? STAGE_COLORS[i - 1] : COLORS.bgCardLight
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: dotX + dotSize + px(3),
+          y: progressY + dotSize / 2 - px(1),
+          w: dotSpacing - dotSize - px(6),
+          h: px(2),
+          radius: px(1),
+          color: lineColor
+        }))
+      }
+    }
+  },
+
+  // Helper: Create dimmer version of color for glow effects
+  getDimColor(color) {
+    const r = ((color >> 16) & 0xFF) >> 2
+    const g = ((color >> 8) & 0xFF) >> 2
+    const b = (color & 0xFF) >> 2
+    return (r << 16) | (g << 8) | b
+  },
+
   cleanup() {
-    barWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
-    barWidgets = []
     widgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
     widgets = []
   }

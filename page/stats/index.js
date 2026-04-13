@@ -2,9 +2,11 @@ import * as hmUI from '@zos/ui'
 import { getDeviceInfo } from '@zos/device'
 import { push, back } from '@zos/router'
 import { onGesture, offGesture, GESTURE_LEFT, GESTURE_RIGHT } from '@zos/interaction'
-import { Step, Distance, HeartRate, Calorie } from '@zos/sensor'
+import { Step, Distance, Calorie } from '@zos/sensor'
 
-// Get screen dimensions with fallback
+// ============================================
+// RESPONSIVE SETUP - Get device dimensions
+// ============================================
 let W = 480
 let H = 480
 try {
@@ -14,33 +16,63 @@ try {
 } catch (e) {}
 
 const CX = Math.round(W / 2)
+const CY = Math.round(H / 2)
 
+// Responsive pixel function - scales from 480px baseline
 function px(val) {
   return Math.round(val * W / 480)
 }
 
+// ============================================
+// RPG COLOR PALETTE - Modern Mobile RPG Style
+// ============================================
 const COLORS = {
-  bgDark: 0x000000,
-  bgLight: 0x2a2a3e,
+  // Backgrounds
+  bgDark: 0x08080c,
+  bgCard: 0x12121a,
+  bgCardLight: 0x1a1a24,
+  bgBar: 0x252530,
+
+  // Text
   textPrimary: 0xFFFFFF,
-  textSecondary: 0xBBBBBB,
-  textMuted: 0x888888,
-  textDark: 0x555555,
+  textSecondary: 0xB0B0C0,
+  textMuted: 0x606070,
+
+  // Affinity Colors (matching Evolution page)
   speed: 0x00BFFF,
+  speedDark: 0x005580,
+  speedGlow: 0x002840,
+
   power: 0xFF6B35,
+  powerDark: 0x993F1F,
+  powerGlow: 0x4d1f0f,
+
   endurance: 0x9B59B6,
-  success: 0x4CAF50,
-  barBg: 0x2a2a3e
+  enduranceDark: 0x5D356D,
+  enduranceGlow: 0x2e1a36,
+
+  // Accent
+  gold: 0xFFD700,
+  goldDark: 0x806B00,
+}
+
+// Affinity icons
+const AFFINITY_ICONS = {
+  speed: '⚡',
+  power: '💪',
+  endurance: '🛡'
+}
+
+// Affinity display names
+const AFFINITY_NAMES = {
+  speed: 'SPD',
+  power: 'PWR',
+  endurance: 'END'
 }
 
 let widgets = []
-let barWidgets = []
 let creature = null
-let stepSensor = null
-let distSensor = null
-let hrSensor = null
-let calSensor = null
-let sensorData = { steps: 0, distance: 0, heartRate: 0, calories: 0 }
+let sensorData = { steps: 0, distance: 0, calories: 0 }
 
 Page({
   onInit() {
@@ -54,6 +86,7 @@ Page({
 
   build() {
     this.setupGestures()
+    this.loadSensorData()
     this.buildUI()
   },
 
@@ -78,251 +111,365 @@ Page({
     })
   },
 
+  loadSensorData() {
+    try {
+      const stepSensor = new Step()
+      sensorData.steps = stepSensor.getCurrent() || 0
+    } catch (e) {}
+
+    try {
+      const distSensor = new Distance()
+      sensorData.distance = distSensor.getCurrent() || 0
+    } catch (e) {}
+
+    try {
+      const calSensor = new Calorie()
+      sensorData.calories = calSensor.getCurrent() || 0
+    } catch (e) {}
+  },
+
   buildUI() {
-    // Background
+    // Full screen background
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
       x: 0, y: 0, w: W, h: H,
       color: COLORS.bgDark
     }))
 
-    // Title
+    if (!creature) {
+      this.drawNoData()
+      return
+    }
+
+    // Get affinities
+    const affinities = creature.affinities || { speed: 0, power: 0, endurance: 0 }
+    const dominant = this.getDominantAffinity(affinities)
+
+    // ===== DRAW RPG UI =====
+
+    // 1. Title
+    this.drawTitle()
+
+    // 2. Dominant Type Badge (top center)
+    this.drawTypeBadge(dominant)
+
+    // 3. Stat Cards (3 horizontal cards)
+    this.drawStatCards(affinities, dominant)
+
+    // 4. Daily Activity Section
+    this.drawActivitySection()
+
+    // 5. Page indicator dots
+    this.drawPageDots()
+  },
+
+  drawNoData() {
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: px(50), w: W - px(120), h: px(32),
-      text: 'Stats',
-      text_size: px(26),
+      x: px(40), y: CY - px(20), w: W - px(80), h: px(40),
+      text: 'No creature data',
+      text_size: px(18),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
+  },
+
+  drawTitle() {
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: 0, y: px(40), w: W, h: px(24),
+      text: 'ATTRIBUTES',
+      text_size: px(16),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
+  },
+
+  drawTypeBadge(dominant) {
+    const badgeY = px(68)
+    const badgeW = px(130)
+    const badgeH = px(36)
+    const color = COLORS[dominant]
+    const darkColor = COLORS[`${dominant}Dark`]
+    const glowColor = COLORS[`${dominant}Glow`]
+    const icon = AFFINITY_ICONS[dominant]
+
+    // Outer glow
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2 - px(4),
+      y: badgeY - px(4),
+      w: badgeW + px(8),
+      h: badgeH + px(8),
+      radius: (badgeH + px(8)) / 2,
+      color: glowColor
+    }))
+
+    // Badge border
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2 - px(2),
+      y: badgeY - px(2),
+      w: badgeW + px(4),
+      h: badgeH + px(4),
+      radius: (badgeH + px(4)) / 2,
+      color: darkColor
+    }))
+
+    // Badge background
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX - badgeW / 2,
+      y: badgeY,
+      w: badgeW,
+      h: badgeH,
+      radius: badgeH / 2,
+      color: COLORS.bgCard
+    }))
+
+    // Badge text with icon
+    const typeName = dominant.charAt(0).toUpperCase() + dominant.slice(1)
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: CX - badgeW / 2,
+      y: badgeY + px(7),
+      w: badgeW,
+      h: px(24),
+      text: `${icon} ${typeName}`,
+      text_size: px(15),
+      color: color,
+      align_h: hmUI.align.CENTER_H
+    }))
+  },
+
+  drawStatCards(affinities, dominant) {
+    const cardY = px(125)
+    const cardH = px(80)
+    const cardGap = px(6)
+    const totalWidth = W - px(80)  // More margin for round screen edges
+    const cardW = Math.floor((totalWidth - cardGap * 2) / 3)
+    const startX = px(40)  // Pushed in from edges
+
+    const stats = [
+      { key: 'speed', value: affinities.speed },
+      { key: 'power', value: affinities.power },
+      { key: 'endurance', value: affinities.endurance }
+    ]
+
+    stats.forEach((stat, index) => {
+      const cardX = startX + index * (cardW + cardGap)
+      const isDominant = stat.key === dominant
+      this.drawStatCard(cardX, cardY, cardW, cardH, stat.key, stat.value, isDominant)
+    })
+  },
+
+  drawStatCard(x, y, w, h, statKey, value, isDominant) {
+    const color = COLORS[statKey]
+    const darkColor = COLORS[`${statKey}Dark`]
+    const glowColor = COLORS[`${statKey}Glow`]
+    const icon = AFFINITY_ICONS[statKey]
+    const name = AFFINITY_NAMES[statKey]
+
+    // Card glow (only for dominant)
+    if (isDominant) {
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: x - px(3),
+        y: y - px(3),
+        w: w + px(6),
+        h: h + px(6),
+        radius: px(14),
+        color: glowColor
+      }))
+
+      // Bright border for dominant
+      widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+        x: x - px(1),
+        y: y - px(1),
+        w: w + px(2),
+        h: h + px(2),
+        radius: px(12),
+        color: darkColor
+      }))
+    }
+
+    // Card background
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: x, y: y, w: w, h: h,
+      radius: px(10),
+      color: COLORS.bgCard
+    }))
+
+    // Top accent line
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: x + px(8),
+      y: y + px(5),
+      w: w - px(16),
+      h: px(3),
+      radius: px(1),
+      color: color
+    }))
+
+    // Icon
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x, y: y + px(14),
+      w: w, h: px(20),
+      text: icon,
+      text_size: px(16),
+      color: color,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Value (large)
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x, y: y + px(34),
+      w: w, h: px(22),
+      text: `${value}`,
+      text_size: px(18),
       color: COLORS.textPrimary,
       align_h: hmUI.align.CENTER_H
     }))
 
-    if (!creature) {
-      widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-        x: px(60), y: px(200), w: W - px(120), h: px(30),
-        text: 'No creature data',
-        text_size: px(16),
-        color: COLORS.textMuted,
-        align_h: hmUI.align.CENTER_H
-      }))
-      return
-    }
-
-    this.loadSensorData()
-    this.buildAffinitySection()
-    this.buildActivitySection()
-  },
-
-  loadSensorData() {
-    try {
-      stepSensor = new Step()
-      sensorData.steps = stepSensor.getCurrent() || 0
-    } catch (e) {}
-
-    try {
-      distSensor = new Distance()
-      sensorData.distance = distSensor.getCurrent() || 0
-    } catch (e) {}
-
-    try {
-      hrSensor = new HeartRate()
-      sensorData.heartRate = hrSensor.getCurrent() || 0
-    } catch (e) {}
-
-    try {
-      calSensor = new Calorie()
-      sensorData.calories = calSensor.getCurrent() || 0
-    } catch (e) {}
-  },
-
-  buildAffinitySection() {
-    const startY = px(90)
-    const barWidth = px(280)
-    const barX = CX - barWidth / 2
-    const labelX = barX
-    const valueX = barX + barWidth - px(60)
-
-    // Use creature's stored affinities (0-100 scale)
-    const affinities = creature.affinities || { speed: 0, power: 0, endurance: 0 }
-
-    // Speed
+    // Label
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: labelX, y: startY, w: px(120), h: px(22),
-      text: 'Speed',
-      text_size: px(16),
-      color: COLORS.speed,
-      align_h: hmUI.align.LEFT
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: valueX, y: startY, w: px(60), h: px(22),
-      text: `${affinities.speed}`,
-      text_size: px(16),
-      color: COLORS.textSecondary,
-      align_h: hmUI.align.RIGHT
-    }))
-    this.createProgressBar(barX, startY + px(24), barWidth, px(12), affinities.speed, COLORS.speed)
-
-    // Power
-    const powerY = startY + px(60)
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: labelX, y: powerY, w: px(120), h: px(22),
-      text: 'Power',
-      text_size: px(16),
-      color: COLORS.power,
-      align_h: hmUI.align.LEFT
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: valueX, y: powerY, w: px(60), h: px(22),
-      text: `${affinities.power}`,
-      text_size: px(16),
-      color: COLORS.textSecondary,
-      align_h: hmUI.align.RIGHT
-    }))
-    this.createProgressBar(barX, powerY + px(24), barWidth, px(12), affinities.power, COLORS.power)
-
-    // Endurance
-    const endurY = startY + px(120)
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: labelX, y: endurY, w: px(120), h: px(22),
-      text: 'Endurance',
-      text_size: px(16),
-      color: COLORS.endurance,
-      align_h: hmUI.align.LEFT
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: valueX, y: endurY, w: px(60), h: px(22),
-      text: `${affinities.endurance}`,
-      text_size: px(16),
-      color: COLORS.textSecondary,
-      align_h: hmUI.align.RIGHT
-    }))
-    this.createProgressBar(barX, endurY + px(24), barWidth, px(12), affinities.endurance, COLORS.endurance)
-
-    // Dominant type from creature's affinities
-    const dominant = this.getDominantAffinityFromData(affinities)
-    const dominantColor = COLORS[dominant]
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: startY + px(180), w: W - px(120), h: px(24),
-      text: `${dominant.charAt(0).toUpperCase() + dominant.slice(1)} Type`,
-      text_size: px(18),
-      color: dominantColor,
+      x: x, y: y + px(56),
+      w: w, h: px(16),
+      text: name,
+      text_size: px(10),
+      color: COLORS.textMuted,
       align_h: hmUI.align.CENTER_H
     }))
   },
 
-  buildActivitySection() {
-    const sectionY = px(295)
+  drawActivitySection() {
+    const sectionY = px(225)
 
-    // Divider
+    // Section header with decorative lines
+    const lineW = px(60)
+    const textW = px(120)
+
+    // Left line
     widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: px(100), y: sectionY - px(15),
-      w: W - px(200), h: px(1),
-      color: COLORS.bgLight
+      x: CX - textW / 2 - lineW - px(10),
+      y: sectionY + px(8),
+      w: lineW,
+      h: px(1),
+      color: COLORS.bgCardLight
     }))
 
+    // Section title
     widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: px(60), y: sectionY, w: W - px(120), h: px(26),
-      text: "Today's Activity",
-      text_size: px(18),
-      color: COLORS.textSecondary,
+      x: CX - textW / 2,
+      y: sectionY,
+      w: textW,
+      h: px(18),
+      text: 'DAILY LOG',
+      text_size: px(12),
+      color: COLORS.textMuted,
       align_h: hmUI.align.CENTER_H
     }))
 
-    // Use already loaded sensor data
-    const heartRate = sensorData.heartRate > 0 ? `${sensorData.heartRate}` : '--'
+    // Right line
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: CX + textW / 2 + px(10),
+      y: sectionY + px(8),
+      w: lineW,
+      h: px(1),
+      color: COLORS.bgCardLight
+    }))
+
+    // Activity cards row
+    const cardY = sectionY + px(28)
+    const cardH = px(70)
+    const cardGap = px(6)
+    const totalWidth = W - px(80)  // More margin for round screen edges
+    const cardW = Math.floor((totalWidth - cardGap * 2) / 3)
+    const startX = px(40)  // Pushed in from edges
+
+    // Format data
     const distKm = (sensorData.distance / 1000).toFixed(1)
 
-    // Stats row
-    const rowY = sectionY + px(35)
-    const colW = px(100)
-    const col1X = CX - px(150)
-    const col2X = CX - colW / 2
-    const col3X = CX + px(50)
+    const activities = [
+      { icon: '👟', value: `${sensorData.steps}`, label: 'STEPS', color: COLORS.speed },
+      { icon: '📍', value: distKm, label: 'KM', color: COLORS.power },
+      { icon: '🔥', value: `${sensorData.calories}`, label: 'KCAL', color: COLORS.endurance }
+    ]
 
-    // Steps
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col1X, y: rowY, w: colW, h: px(30),
-      text: `${sensorData.steps}`,
-      text_size: px(24),
-      color: COLORS.speed,
-      align_h: hmUI.align.CENTER_H
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col1X, y: rowY + px(30), w: colW, h: px(18),
-      text: 'steps',
-      text_size: px(14),
-      color: COLORS.textMuted,
-      align_h: hmUI.align.CENTER_H
-    }))
-
-    // Distance
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col2X, y: rowY, w: colW, h: px(30),
-      text: distKm,
-      text_size: px(24),
-      color: COLORS.power,
-      align_h: hmUI.align.CENTER_H
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col2X, y: rowY + px(30), w: colW, h: px(18),
-      text: 'km',
-      text_size: px(14),
-      color: COLORS.textMuted,
-      align_h: hmUI.align.CENTER_H
-    }))
-
-    // Heart Rate
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col3X, y: rowY, w: colW, h: px(30),
-      text: heartRate,
-      text_size: px(24),
-      color: COLORS.endurance,
-      align_h: hmUI.align.CENTER_H
-    }))
-    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
-      x: col3X, y: rowY + px(30), w: colW, h: px(18),
-      text: 'bpm',
-      text_size: px(14),
-      color: COLORS.textMuted,
-      align_h: hmUI.align.CENTER_H
-    }))
-
-    // Page dots
-    this.createPageDots(px(435))
+    activities.forEach((activity, index) => {
+      const cardX = startX + index * (cardW + cardGap)
+      this.drawActivityCard(cardX, cardY, cardW, cardH, activity)
+    })
   },
 
-  createProgressBar(x, y, width, height, progress, color) {
-    barWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-      x: x, y: y, w: width, h: height,
-      radius: height / 2,
-      color: COLORS.barBg
+  drawActivityCard(x, y, w, h, activity) {
+    // Card background
+    widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+      x: x, y: y, w: w, h: h,
+      radius: px(10),
+      color: COLORS.bgCard
     }))
 
-    const fillWidth = Math.max(height, Math.round((width - px(4)) * Math.min(100, progress) / 100))
-    if (progress > 0) {
-      barWidgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: x + px(2), y: y + px(2),
-        w: fillWidth, h: height - px(4),
-        radius: (height - px(4)) / 2,
-        color: color
-      }))
-    }
+    // Icon
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x, y: y + px(10),
+      w: w, h: px(20),
+      text: activity.icon,
+      text_size: px(16),
+      color: activity.color,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Value
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x, y: y + px(32),
+      w: w, h: px(22),
+      text: activity.value,
+      text_size: px(18),
+      color: COLORS.textPrimary,
+      align_h: hmUI.align.CENTER_H
+    }))
+
+    // Label
+    widgets.push(hmUI.createWidget(hmUI.widget.TEXT, {
+      x: x, y: y + px(54),
+      w: w, h: px(14),
+      text: activity.label,
+      text_size: px(10),
+      color: COLORS.textMuted,
+      align_h: hmUI.align.CENTER_H
+    }))
   },
 
-  createPageDots(y) {
-    const dotSize = px(6)
-    const dotSpacing = px(14)
-    const totalW = 5 * dotSize + 4 * (dotSpacing - dotSize)
+  drawPageDots() {
+    const dotY = px(420)
+    const dotSize = px(8)
+    const activeDotSize = px(10)
+    const dotSpacing = px(18)
+    const numDots = 5
+    const totalW = (numDots - 1) * dotSpacing + dotSize
     const startX = CX - totalW / 2
 
-    for (let i = 0; i < 5; i++) {
+    for (let i = 0; i < numDots; i++) {
+      const isActive = i === 1 // Stats is page 2 (index 1)
+      const size = isActive ? activeDotSize : dotSize
+      const offset = isActive ? (activeDotSize - dotSize) / 2 : 0
+
+      if (isActive) {
+        // Glow for active dot
+        widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
+          x: startX + i * dotSpacing - offset - px(2),
+          y: dotY - offset - px(2),
+          w: size + px(4),
+          h: size + px(4),
+          radius: (size + px(4)) / 2,
+          color: COLORS.bgCardLight
+        }))
+      }
+
       widgets.push(hmUI.createWidget(hmUI.widget.FILL_RECT, {
-        x: startX + i * dotSpacing, y: y,
-        w: dotSize, h: dotSize,
-        radius: dotSize / 2,
-        color: i === 1 ? COLORS.textPrimary : COLORS.textDark
+        x: startX + i * dotSpacing - offset,
+        y: dotY - offset,
+        w: size,
+        h: size,
+        radius: size / 2,
+        color: isActive ? COLORS.textPrimary : COLORS.textMuted
       }))
     }
   },
 
-  getDominantAffinityFromData(affinities) {
+  getDominantAffinity(affinities) {
     const { speed, power, endurance } = affinities
     if (speed >= power && speed >= endurance) return 'speed'
     if (power >= speed && power >= endurance) return 'power'
@@ -330,8 +477,6 @@ Page({
   },
 
   cleanup() {
-    barWidgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
-    barWidgets = []
     widgets.forEach(w => { try { hmUI.deleteWidget(w) } catch (e) {} })
     widgets = []
   }
